@@ -341,8 +341,8 @@ public class HapticsTest : MonoBehaviour
     private static readonly int[,] matrix = {
     {3,2,1,0},
     { 4, 5, 6, 7},
-    {33, 32, 31, 30},
-    {34, 35, 36, 37}
+    {11, 10, 9, 8},
+    {12, 13, 14, 15}
     };
 
     // private static readonly int[,] matrix = {
@@ -779,7 +779,7 @@ public class HapticsTest : MonoBehaviour
         // actually send
         foreach (int addr in dirty)
         {
-            VibraForge.SendCommand(addr,
+            VibraForge.SendCommand(0, addr,
                 _prevDuty[addr] == 0 ? 0 : 1,    // enable flag
                 _prevDuty[addr],                 // duty 0-14
                 _prevFreq[addr]);                // freq (fixed = 1 here)
@@ -942,124 +942,207 @@ public class HapticsTest : MonoBehaviour
         GameObject.FindGameObjectWithTag("GameManager").GetComponent<HapticsTest>().Start();
     }
 
-
     void Start()
+{
+    // --- ADD THESE CONSTANTS for clarity ---
+    const int DRONE_SLAVE_ID = 0;    // Haptics for the main drone swarm
+    const int OBSTACLE_SLAVE_ID = 1; // Haptics for obstacles
+
+    VibraForge.Reset();
+    print("HapticsTest Start");
+    finalList = new List<Actuators>();
+    actuatorsRange = new List<Actuators>();
+    actuatorsVariables = new List<Actuators>();
+    actuatorNetwork = new List<Actuators>();
+    actuatorsMovingPlane = new List<Actuators>();
+    crashActuators = new List<Actuators>();
+    lastDefined = new List<Actuators>();
+    animatedActuators = new Dictionary<AnimatedActuator, IEnumerator>();
+
+    _swarmFrame = new GameObject("SwarmFrame").transform;
+    _swarmFrame.gameObject.hideFlags = HideFlags.HideInHierarchy;   // keep Hierarchy clean
+
+    // ... (mapping definitions remain the same) ...
+    
+    Dictionary<int, int> angleMappingDict = new Dictionary<int, int> {
+        {64, 160},{65, 115},{66, 65},{67, 20}, {120, 200}, {121, 245},{122, 295},{123, 340},
+        {90, 160},{91, 115},{92, 65},{93, 20}, {210, 200}, {211, 245},{212, 295},{213, 340},
+         {60, 340},{61, 295},{62, 245},{63, 200}, {150, 200}, {151, 245},{152, 295},{153, 340},
+    };
+
+    int[] angleMapping = Haptics_Obstacle ? new int[] { 0, 1, 2, 3, 4, 5, 6, 7 } : new int[] { };
+    int[] crashMapping = Haptics_Crash ? new int[] { 4, 5, 124, 125 } : new int[] { };
+
+    // --- OBSTACLE ACTUATOR CREATION ---
+    for (int i = 0; i < angleMapping.Length; i++)
     {
-        VibraForge.Reset();
-        print("HapticsTest Start");
-        finalList = new List<Actuators>();
-        actuatorsRange = new List<Actuators>();
-        actuatorsVariables = new List<Actuators>();
-        actuatorNetwork = new List<Actuators>();
-        actuatorsMovingPlane = new List<Actuators>();
-        crashActuators = new List<Actuators>();
-        lastDefined = new List<Actuators>();
-        animatedActuators = new Dictionary<AnimatedActuator, IEnumerator>();
+        int adresse = angleMapping[i];
+        int angle = angleMappingDict.ContainsKey(adresse) ? angleMappingDict[adresse] : 0;
+        var pidActuator = new PIDActuator(adresse: adresse, angle: angle,
+                                                kp: 0f, kd: 160, referencevalue: 0,
+                                                refresh: CloseToWallrefresherFunction);
 
-        _swarmFrame = new GameObject("SwarmFrame").transform;
-        _swarmFrame.gameObject.hideFlags = HideFlags.HideInHierarchy;   // keep Hierarchy clean
+        // --- ASSIGN THE SLAVE ID ---
+        pidActuator.SlaveId = OBSTACLE_SLAVE_ID; // This command will now go to Slave #1
 
-
-        //
-        int[] mappingOlfati = Haptics_Forces ? new int[] {/*0,1,2,3,120,121,122,123*/} : new int[] {}; 
-    //    int[] mappingOlfati = Haptics_Forces ? new int[] {90,91,92,93,180,181,182,183} : new int[] {}; 
-        
-        int [] velocityMapping = {}; //relative mvt of the swarm
-
-        // Dictionary<int, int> angleMappingDict = new Dictionary<int, int> {
-        //     {0, 160},{1, 115},{2, 65},{3, 20}, {120, 200}, {121, 245},{122, 295},{123, 340},
-        //     {90, 160},{91, 115},{92, 65},{93, 20}f, {210, 200}, {211, 245},{212, 295},{213, 340},
-        //      {30, 160},{31, 115},{32, 65},{33, 20}, {150, 200}, {151, 245},{152, 295},{153, 340},
-        // };
-        // Dictionary<int, int> angleMappingDict = new Dictionary<int, int> {
-        //     {64, 160},{65, 115},{66, 65},{67, 20}, {120, 200}, {121, 245},{122, 295},{123, 340},
-        //     {90, 160},{91, 115},{92, 65},{93, 20}, {210, 200}, {211, 245},{212, 295},{213, 340},
-        //      {60, 200},{61, 245},{62, 295},{63, 340}, {150, 200}, {151, 245},{152, 295},{153, 340},
-        // };
-        Dictionary<int, int> angleMappingDict = new Dictionary<int, int> {
-            {64, 160},{65, 115},{66, 65},{67, 20}, {120, 200}, {121, 245},{122, 295},{123, 340},
-            {90, 160},{91, 115},{92, 65},{93, 20}, {210, 200}, {211, 245},{212, 295},{213, 340},
-             {60, 340},{61, 295},{62, 245},{63, 200}, {150, 200}, {151, 245},{152, 295},{153, 340},
-        };
-
-
-        //obstacle in Range mapping
-        // int[] angleMapping =  Haptics_Obstacle ? new int[] {30,31,32,33,150,151,152,153}  : new int[] {};
-        // int[] angleMapping =  Haptics_Obstacle ? new int[] {0,1,2,3,60,61,62,63}  : new int[] {};
-        int[] angleMapping =  Haptics_Obstacle ? new int[] {60,61,62,63,64,65,66,67}  : new int[] {};
-        // int[] angleMapping =  Haptics_Obstacle ? ObstacleAddrs : Array.Empty<int>();
-
-        //drone crash mapping
-        int[] crashMapping =  Haptics_Crash ? new int[] {4,5,124,125}  : new int[] {};
-//        print("Crash Mapping: " + crashMapping.Length);
-        
-        
-        //layers movement on arm mapping
-        // int[] movingPlaneMapping =  Haptics_Network ? new int[] {60,61,62,63, 64, 65, 66, 67, 68, 69,
-        //                                                             180,181, 182, 183, 184, 185, 186, 187, 188, 189}
-        //                                                                 : new int[] {};
-        // int[] movingPlaneMapping =  Haptics_Network ? new int[] {0,1,2,3, 4, 5, 6, 7, 8, 9,
-        //                                                             30,31, 32, 33, 34, 35, 36, 37, 38, 39}
-        //                                                                 : new int[] {};
-        // 96,97,98,99,100,101,102,103,104,105 //48,49, 50,51,52,53,54,55,56,57 // 16,17, 18, 19, 20, 21, 22, 23, 24, 25
-
-        for (int i = 0; i < angleMapping.Length; i++)
-        {
-            int adresse = angleMapping[i];
-            int angle = angleMappingDict.ContainsKey(adresse) ? angleMappingDict[adresse] : 0; 
-            actuatorsRange.Add(new PIDActuator(adresse:adresse, angle:angleMappingDict[adresse],
-                                                    kp:0f, kd:160, referencevalue:0, 
-                                                    refresh:CloseToWallrefresherFunction));
-        }
-
-        // for (int i = 0; i < mappingOlfati.Length; i++)
-        // {
-        //     int adresse = mappingOlfati[i];
-        //     actuatorsVariables.Add(new RefresherActuator(adresse:adresse, angle:angleMappingDict[adresse], refresh:ForceActuator));
-        // }
-
-        for (int i = 0; i < crashMapping.Length; i++)
-        {
-            int adresse = crashMapping[i];
-            crashActuators.Add(new Actuators(adresse, 0));
-        }
-
-        // for (int i = 0; i < velocityMapping.Length; i++)
-        // {
-        //     int adresse = velocityMapping[i];
-        //     actuatorsVariables.Add(new RefresherActuator(adresse:adresse, angle:angleMappingDict[adresse], refresh:SwarmVelocityRefresher));
-        // }
-
-        // for (int i = 0; i < movingPlaneMapping.Length; i++)
-        // {
-        //     int adresse = movingPlaneMapping[i];
-        //     actuatorsMovingPlane.Add(new RefresherActuator(adresse:adresse, angle:adresse%10, refresh:movingPlaneRefresher));
-        // }
-
-        finalList.AddRange(actuatorsRange);
-        finalList.AddRange(crashActuators);
-        finalList.AddRange(actuatorNetwork);
-
-        finalList.AddRange(actuatorsVariables);
-        finalList.AddRange(actuatorsMovingPlane);
-
-        if(hapticsCoroutine != null) {
-            StopCoroutine(hapticsCoroutine);
-        }
-
-
-        hapticsCoroutine = StartCoroutine(HapticsCoroutine());
-
-        currentGamepad = Gamepad.current;
-        if (currentGamepad == null)
-        {
-            Debug.LogWarning("No gamepad connected.");
-        }else {
-            currentGamepad.SetMotorSpeeds(0.0f, 0.0f);
-        }
+        actuatorsRange.Add(pidActuator);
     }
 
- 
+    // --- CRASH ACTUATOR CREATION ---
+    for (int i = 0; i < crashMapping.Length; i++)
+    {
+        int adresse = crashMapping[i];
+        var crashActuator = new Actuators(adresse, 0);
+
+        // --- ASSIGN THE SLAVE ID ---
+        crashActuator.SlaveId = DRONE_SLAVE_ID; // Crash commands will go to Slave #0
+
+        crashActuators.Add(crashActuator);
+    }
+
+    // ... (rest of the Start method is the same) ...
+    
+    finalList.AddRange(actuatorsRange);
+    finalList.AddRange(crashActuators);
+    finalList.AddRange(actuatorNetwork);
+    finalList.AddRange(actuatorsVariables);
+    finalList.AddRange(actuatorsMovingPlane);
+
+    if (hapticsCoroutine != null)
+    {
+        StopCoroutine(hapticsCoroutine);
+    }
+
+    hapticsCoroutine = StartCoroutine(HapticsCoroutine());
+
+    currentGamepad = Gamepad.current;
+    if (currentGamepad == null)
+    {
+        Debug.LogWarning("No gamepad connected.");
+    }
+    else
+    {
+        currentGamepad.SetMotorSpeeds(0.0f, 0.0f);
+    }
+}
+
+//     void Start()
+//     {
+//         VibraForge.Reset();
+//         print("HapticsTest Start");
+//         finalList = new List<Actuators>();
+//         actuatorsRange = new List<Actuators>();
+//         actuatorsVariables = new List<Actuators>();
+//         actuatorNetwork = new List<Actuators>();
+//         actuatorsMovingPlane = new List<Actuators>();
+//         crashActuators = new List<Actuators>();
+//         lastDefined = new List<Actuators>();
+//         animatedActuators = new Dictionary<AnimatedActuator, IEnumerator>();
+
+//         _swarmFrame = new GameObject("SwarmFrame").transform;
+//         _swarmFrame.gameObject.hideFlags = HideFlags.HideInHierarchy;   // keep Hierarchy clean
+
+
+//         //
+//         int[] mappingOlfati = Haptics_Forces ? new int[] {/*0,1,2,3,120,121,122,123*/} : new int[] {}; 
+//     //    int[] mappingOlfati = Haptics_Forces ? new int[] {90,91,92,93,180,181,182,183} : new int[] {}; 
+        
+//         int [] velocityMapping = {}; //relative mvt of the swarm
+
+//         // Dictionary<int, int> angleMappingDict = new Dictionary<int, int> {
+//         //     {0, 160},{1, 115},{2, 65},{3, 20}, {120, 200}, {121, 245},{122, 295},{123, 340},
+//         //     {90, 160},{91, 115},{92, 65},{93, 20}f, {210, 200}, {211, 245},{212, 295},{213, 340},
+//         //      {30, 160},{31, 115},{32, 65},{33, 20}, {150, 200}, {151, 245},{152, 295},{153, 340},
+//         // };
+//         // Dictionary<int, int> angleMappingDict = new Dictionary<int, int> {
+//         //     {64, 160},{65, 115},{66, 65},{67, 20}, {120, 200}, {121, 245},{122, 295},{123, 340},
+//         //     {90, 160},{91, 115},{92, 65},{93, 20}, {210, 200}, {211, 245},{212, 295},{213, 340},
+//         //      {60, 200},{61, 245},{62, 295},{63, 340}, {150, 200}, {151, 245},{152, 295},{153, 340},
+//         // };
+//         Dictionary<int, int> angleMappingDict = new Dictionary<int, int> {
+//             {64, 160},{65, 115},{66, 65},{67, 20}, {120, 200}, {121, 245},{122, 295},{123, 340},
+//             {90, 160},{91, 115},{92, 65},{93, 20}, {210, 200}, {211, 245},{212, 295},{213, 340},
+//              {60, 340},{61, 295},{62, 245},{63, 200}, {150, 200}, {151, 245},{152, 295},{153, 340},
+//         };
+
+
+//         //obstacle in Range mapping
+//         // int[] angleMapping =  Haptics_Obstacle ? new int[] {30,31,32,33,150,151,152,153}  : new int[] {};
+//         // int[] angleMapping =  Haptics_Obstacle ? new int[] {0,1,2,3,60,61,62,63}  : new int[] {};
+//         //int[] angleMapping = Haptics_Obstacle ? new int[] { 60, 61, 62, 63, 64, 65, 66, 67 } : new int[] { };
+//         int[] angleMapping =  Haptics_Obstacle ? new int[] {0,1 , 2, 3, 4, 5, 6, }  : new int[] {};
+//         // int[] angleMapping =  Haptics_Obstacle ? ObstacleAddrs : Array.Empty<int>();
+
+//         //drone crash mapping
+//         int[] crashMapping =  Haptics_Crash ? new int[] {4,5,124,125}  : new int[] {};
+// //        print("Crash Mapping: " + crashMapping.Length);
+        
+        
+//         //layers movement on arm mapping
+//         // int[] movingPlaneMapping =  Haptics_Network ? new int[] {60,61,62,63, 64, 65, 66, 67, 68, 69,
+//         //                                                             180,181, 182, 183, 184, 185, 186, 187, 188, 189}
+//         //                                                                 : new int[] {};
+//         // int[] movingPlaneMapping =  Haptics_Network ? new int[] {0,1,2,3, 4, 5, 6, 7, 8, 9,
+//         //                                                             30,31, 32, 33, 34, 35, 36, 37, 38, 39}
+//         //                                                                 : new int[] {};
+//         // 96,97,98,99,100,101,102,103,104,105 //48,49, 50,51,52,53,54,55,56,57 // 16,17, 18, 19, 20, 21, 22, 23, 24, 25
+
+//         for (int i = 0; i < angleMapping.Length; i++)
+//         {
+//             int adresse = angleMapping[i];
+//             int angle = angleMappingDict.ContainsKey(adresse) ? angleMappingDict[adresse] : 0; 
+//             actuatorsRange.Add(new PIDActuator(adresse:adresse, angle:angleMappingDict[adresse],
+//                                                     kp:0f, kd:160, referencevalue:0, 
+//                                                     refresh:CloseToWallrefresherFunction));
+//         }
+
+//         // for (int i = 0; i < mappingOlfati.Length; i++)
+//         // {
+//         //     int adresse = mappingOlfati[i];
+//         //     actuatorsVariables.Add(new RefresherActuator(adresse:adresse, angle:angleMappingDict[adresse], refresh:ForceActuator));
+//         // }
+
+//         for (int i = 0; i < crashMapping.Length; i++)
+//         {
+//             int adresse = crashMapping[i];
+//             crashActuators.Add(new Actuators(adresse, 0));
+//         }
+
+//         // for (int i = 0; i < velocityMapping.Length; i++)
+//         // {
+//         //     int adresse = velocityMapping[i];
+//         //     actuatorsVariables.Add(new RefresherActuator(adresse:adresse, angle:angleMappingDict[adresse], refresh:SwarmVelocityRefresher));
+//         // }
+
+//         // for (int i = 0; i < movingPlaneMapping.Length; i++)
+//         // {
+//         //     int adresse = movingPlaneMapping[i];
+//         //     actuatorsMovingPlane.Add(new RefresherActuator(adresse:adresse, angle:adresse%10, refresh:movingPlaneRefresher));
+//         // }
+
+//         finalList.AddRange(actuatorsRange);
+//         finalList.AddRange(crashActuators);
+//         finalList.AddRange(actuatorNetwork);
+
+//         finalList.AddRange(actuatorsVariables);
+//         finalList.AddRange(actuatorsMovingPlane);
+
+//         if(hapticsCoroutine != null) {
+//             StopCoroutine(hapticsCoroutine);
+//         }
+
+
+//         hapticsCoroutine = StartCoroutine(HapticsCoroutine());
+
+//         currentGamepad = Gamepad.current;
+//         if (currentGamepad == null)
+//         {
+//             Debug.LogWarning("No gamepad connected.");
+//         }else {
+//             currentGamepad.SetMotorSpeeds(0.0f, 0.0f);
+//         }
+//     }
+
     void Disable()
     {
        // hapticsThread.Abort();
@@ -1254,7 +1337,7 @@ public class HapticsTest : MonoBehaviour
             if(actuator is AnimatedActuator) {
                 continue;
             }
-            VibraForge.SendCommand(actuator.Adresse, (int)actuator.duty == 0 ? 0:1, (int)actuator.duty, (int)actuator.frequency);
+            VibraForge.SendCommand(0, actuator.Adresse, (int)actuator.duty == 0 ? 0:1, (int)actuator.duty, (int)actuator.frequency);
         }
     }
 
@@ -1620,7 +1703,7 @@ public class HapticsTest : MonoBehaviour
                 currentIntensity = currentIntensity - step < endIntensity ? endIntensity : currentIntensity - step;
             }
 
-            VibraForge.SendCommand(newAct.Adresse, (int)currentIntensity == 0 ? 0:1, (int)currentIntensity, (int)newAct.frequency);
+            VibraForge.SendCommand(0, newAct.Adresse, (int)currentIntensity == 0 ? 0:1, (int)currentIntensity, (int)newAct.frequency);
             yield return new WaitForSeconds(0.1f);
         }
 
@@ -1639,7 +1722,7 @@ public class HapticsTest : MonoBehaviour
             }else {
                 currentIntensity = currentIntensity - step < endIntensity ? endIntensity : currentIntensity - step;
             }
-            VibraForge.SendCommand(newAct.Adresse, (int)currentIntensity == 0 ? 0:1, (int)currentIntensity, (int)newAct.frequency);
+            VibraForge.SendCommand(0, newAct.Adresse, (int)currentIntensity == 0 ? 0:1, (int)currentIntensity, (int)newAct.frequency);
             yield return new WaitForSeconds(0.1f);
         }
 
@@ -1700,7 +1783,7 @@ public class AnimatedActuator: RefresherActuator
 
     public void stopAnimation()
     {
-        VibraForge.SendCommand(Adresse, 0, 0, 1);
+        VibraForge.SendCommand(0, Adresse, 0, 0, 1);
     }
     public AnimatedActuator(int adresse, float angle, updateFunction refresh) : base(adresse, angle, refresh)
     {
@@ -1764,6 +1847,7 @@ public class PIDActuator : Actuators // creae Ki
 
 public class Actuators
 {
+    public int SlaveId { get; set; }    // to target a specific slave (0=all)
     public int Adresse { get; set; }
     public float Angle { get; set; }
 
@@ -1811,16 +1895,28 @@ public class Actuators
         return;
     }
 
+    // public virtual void sendValue()
+    //  {
+    //      if( lastSendFrequency != frequency || lastSendDuty != duty) {
+    //         VibraForge.SendCommand(Adresse, (int)duty == 0 ? 0:1, (int)duty, (int)frequency);
+    //         lastSendDuty = duty;
+    //         lastSendFrequency = frequency;
+    //      Debug.Log("Send Command: " + Adresse + " Duty: " + duty + " Frequency: " + frequency);
+    //     }
+    // }
+
     public virtual void sendValue()
     {
         if( lastSendFrequency != frequency || lastSendDuty != duty) {
-            VibraForge.SendCommand(Adresse, (int)duty == 0 ? 0:1, (int)duty, (int)frequency);
+            // --- MODIFIED LINE ---
+            // Add "this.SlaveId" as the first parameter to the SendCommand call.
+            VibraForge.SendCommand(this.SlaveId, Adresse, (int)duty == 0 ? 0:1, (int)duty, (int)frequency);
+            
             lastSendDuty = duty;
             lastSendFrequency = frequency;
-      //      Debug.Log("Send Command: " + Adresse + " Duty: " + duty + " Frequency: " + frequency);
+    //      Debug.Log("Send Command: " + Adresse + " Duty: " + duty + " Frequency: " + frequency);
         }
     }
-
 
     public IEnumerator sendDelayedVal(float delay)
     {

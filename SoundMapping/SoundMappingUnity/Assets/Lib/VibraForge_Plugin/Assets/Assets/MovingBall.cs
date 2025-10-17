@@ -45,12 +45,12 @@ public class MovingBall : MonoBehaviour
     void OnTriggerEnter(Collider other)
     {
         Debug.Log("Trigger detected with " + other.gameObject.name);
-        VibraForge.SendCommand(0, 1, 7, 2);
+        VibraForge.SendCommand(0,0, 1, 7, 2);
     }
 
     void OnTriggerExit(Collider other)
     {
         Debug.Log("Trigger exited with " + other.gameObject.name);
-        VibraForge.SendCommand(0, 0, 7, 2);
+        VibraForge.SendCommand(0,0, 0, 7, 2);
     }
 }

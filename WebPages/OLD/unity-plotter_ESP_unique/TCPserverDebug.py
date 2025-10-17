@@ -6,39 +6,39 @@ import sys
 
 import websockets
 import aiohttp
-# Use the new API that supports multiple slaves
-from serial_api_flexible import SERIAL_API
+# --- MODIFIED: Import your new API class instead of the serial library ---
+from serial_api_espnow import SERIAL_API
 
-# This will hold an instance of your API class
+# --- MODIFIED: This will hold an instance of your API class ---
 haptic_api = None
 
-# Unified Batching System
+# --- Unified Batching System (unchanged) ---
 message_batch = {}
 batch_first_time = None
 batch_lock = asyncio.Lock()
 IMMEDIATE_THRESHOLD = 20
 DEBUG = False
 
+# --- DELETED: The create_command function is now inside your SERIAL_API class ---
+
+# --- MODIFIED: This function now uses your new API ---
 def send_commands_via_serial(api_instance, combined_message):
     """
-    Parses JSON messages, determines the target slave from the first command,
-    and sends the entire list to the haptic API.
+    Parses JSON messages and sends them as a list to the haptic API.
     """
     if not api_instance or not api_instance.connected:
         print("Haptic API not available. Cannot send commands.")
         return
 
     try:
+        # Find all individual JSON command strings
         data_segments = re.findall(r'\{.*?\}', combined_message)
         if not data_segments:
             return
 
-        # --- NEW LOGIC: Determine the target slave ---
-        # Look at the first command in the batch to decide the destination.
-        first_command_data = json.loads(data_segments[0])
-        # Default to slave 0 if no 'slave_id' is specified in the JSON from Unity.
-        target_slave_id = first_command_data.get('slave_id', 0)
-
+        # --- CRITICAL CHANGE ---
+        # Convert JSON strings into a list of dictionaries.
+        # We map the old "mode" key to the new "start_or_stop" key.
         commands_list = []
         for segment in data_segments:
             data = json.loads(segment)
@@ -46,14 +46,13 @@ def send_commands_via_serial(api_instance, combined_message):
                 'addr': data.get('addr'),
                 'duty': data.get('duty'),
                 'freq': data.get('freq'),
-                'start_or_stop': data.get('mode') # Map old 'mode' key to new 'start_or_stop'
+                'start_or_stop': data.get('mode') # Mapping "mode" to "start_or_stop"
             }
             commands_list.append(command_dict)
 
+        # The API class now handles command creation, padding, and sending.
         if commands_list:
-            # --- MODIFIED API CALL ---
-            # Pass the target_slave_id to the API's send_command_list method.
-            api_instance.send_command_list(target_slave_id, commands_list)
+            api_instance.send_command_list(commands_list)
 
     except Exception as e:
         print(f"❌ Error in send_commands_via_serial: {e}")
@@ -130,7 +129,9 @@ async def process_batch_timer():
                     batch_first_time = None
 
         if combined_message:
+            # Estimate message count for logging
             try:
+                # Find the length of the first JSON object to estimate total messages
                 first_msg_len = len(next(iter(message_batch.values())))
                 msg_count = len(combined_message) // first_msg_len
                 print(f"Flushing timed batch ({msg_count} messages)...")
@@ -150,6 +151,7 @@ async def send_to_server(message):
     except Exception as e:
         print(f"⚠️  Could not connect to logging server: {e}")
 
+# --- MODIFIED: The main function now uses your API for connection ---
 async def main():
     """
     Initializes the haptic API, connects to the gateway, and starts the server.
@@ -163,6 +165,8 @@ async def main():
         print("❌ FATAL ERROR: No serial devices found. Please ensure the gateway is connected.")
         sys.exit(1)
 
+    # For now, we automatically connect to the first available device.
+    # You could add a user prompt here if needed.
     gateway_port_info = available_ports[2]
     print(f"Found gateway, attempting to connect to: {gateway_port_info}")
 

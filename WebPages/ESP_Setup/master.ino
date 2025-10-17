@@ -2,56 +2,72 @@
 #include <WiFi.h>
 #include <esp_wifi.h>
 
-// MAC Address of the Slave ESP32
-uint8_t slaveAddress[] = {0xB4, 0x3A, 0x45, 0xB0, 0xD3, 0x4C};
+// --- ADD ALL YOUR SLAVE MAC ADDRESSES HERE ---
+// The order here corresponds to the Slave ID (0, 1, 2, etc.)
+uint8_t slaveAddresses[][6] = {
+  {0xB4, 0x3A, 0x45, 0xB0, 0xD3, 0x4C}, // MAC Address for Slave ID 0
+  {0xB4, 0x3A, 0x45, 0xB0, 0xCF, 0x1C}, // MAC Address for Slave ID 1
+  // {0x11, 0x22, 0x33, 0x44, 0x55, 0x66}  // MAC Address for Slave ID 2
+};
 
-// Peer info structure
-esp_now_peer_info_t peerInfo;
+// A special broadcast MAC address (FF:FF:FF:FF:FF:FF)
+const uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
-// Callback function for when data is sent
+// We will use a special ID to signify a broadcast message
+const uint8_t BROADCAST_ID = 255;
+
+// Callback for when data is sent
+// NOTE: The function signature is updated to match the newer ESP32 libraries.
 void OnDataSent(const wifi_tx_info_t *info, esp_now_send_status_t status) {
-  // This is optional but good for debugging. 
-  // We avoid printing here to keep the serial channel clear for commands.
+  // Kept empty to not interfere with command serial traffic
 }
 
 void setup() {
-  // Initialize Serial Monitor at the same baud rate as the Python script
   Serial.begin(115200);
-
-  // Set device as a Wi-Fi Station
   WiFi.mode(WIFI_STA);
 
-  // Initialize ESP-NOW
   if (esp_now_init() != ESP_OK) {
-    // If it fails, we won't be able to send anything.
     return;
   }
 
-  // Register the send callback function
   esp_now_register_send_cb(OnDataSent);
   
-  // Register the slave as a peer
-  memcpy(peerInfo.peer_addr, slaveAddress, 6);
-  peerInfo.channel = 0;
-  peerInfo.encrypt = false;
-  
-  // Add the peer
-  if (esp_now_add_peer(&peerInfo) != ESP_OK) {
-    // If it fails, we won't be able to send anything.
-    return;
+  // --- Register All Slaves as Peers ---
+  // This is necessary so they can receive broadcast messages.
+  int numSlaves = sizeof(slaveAddresses) / sizeof(slaveAddresses[0]);
+  for (int i = 0; i < numSlaves; i++) {
+    esp_now_peer_info_t peerInfo = {};
+    memcpy(peerInfo.peer_addr, slaveAddresses[i], 6);
+    peerInfo.channel = 0;
+    peerInfo.encrypt = false;
+    if (esp_now_add_peer(&peerInfo) != ESP_OK) {
+      return;
+    }
   }
 }
 
 void loop() {
-  // Check if there is data available from the Python script
-  if (Serial.available() > 0) {
-    // Create a buffer to hold the incoming data. 60 bytes matches the Python script's padding.
-    uint8_t buffer[60];
-    int bytesRead = Serial.readBytes(buffer, sizeof(buffer));
+  // Packet size is 1 byte (Slave ID) + 60 bytes (motor command payload)
+  if (Serial.available() >= 61) {
+    // Read the first byte to determine the target
+    uint8_t targetSlaveId = Serial.read();
+    
+    // Read the 60-byte motor command payload
+    uint8_t payloadBuffer[60];
+    int bytesRead = Serial.readBytes(payloadBuffer, sizeof(payloadBuffer));
 
-    // Send the received data packet to the slave via ESP-NOW
     if (bytesRead > 0) {
-      esp_now_send(slaveAddress, buffer, bytesRead);
+      if (targetSlaveId == BROADCAST_ID) {
+        // --- Send to All Slaves (Broadcast) ---
+        esp_now_send(broadcastAddress, payloadBuffer, bytesRead);
+      } else {
+        // --- Send to a Specific Slave (Targeted) ---
+        int numSlaves = sizeof(slaveAddresses) / sizeof(slaveAddresses[0]);
+        if (targetSlaveId < numSlaves) {
+          uint8_t* targetAddress = slaveAddresses[targetSlaveId];
+          esp_now_send(targetAddress, payloadBuffer, bytesRead);
+        }
+      }
     }
   }
 }

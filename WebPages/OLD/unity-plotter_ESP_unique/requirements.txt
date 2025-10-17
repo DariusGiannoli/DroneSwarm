@@ -1,0 +1,15 @@
+# requirements.txt
+
+# Core communication for the main server
+websockets
+pyserial
+
+# HTTP client for logging
+aiohttp
+
+# Web framework for the logging/debug server
+Flask
+flask-cors
+
+# Data handling for saving logs
+pandas
