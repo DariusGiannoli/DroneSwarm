@@ -41,7 +41,7 @@ public class MigrationPointController : MonoBehaviour
     public float checkInterval = 0.15f;       // seconds between checks
     public float maxViewAngleDeg = 360f;       // view cone half-angle
     public float minForwardDist = 0.01f;       // must be at least this far ahead
-    public float minHoldTime = 1.5f;          // must stay best for this long before switching
+    public float minHoldTime = 0.5f;          // must stay best for this long before switching
     public float minSwitchCooldown = 1.0f;    // cooldown after a switch to avoid flip-flop
 
     // === Auto-frontmost switching (runtime state) ===
@@ -50,9 +50,17 @@ public class MigrationPointController : MonoBehaviour
     float _candidateSinceTime = 0f;
     float _lastSwitchTime = -999f;
 
+    [Header("Group Filtering")]
+    public bool restrictToMainGroup = true;   // only switch within the largest connected subnetwork
+    public float groupRefreshInterval = 0.5f; // how often to recompute the main group (s)
+    private HashSet<DroneFake> _mainGroup = null;
+    private float _nextGroupRefreshTime = 0f;
+
+
     GameObject FindFrontmostDroneInView(Transform reference,
-                                    float maxAngleDeg,
-                                    float minFwd)
+                                        float maxAngleDeg,
+                                        float minFwd,
+                                        HashSet<DroneFake> allowedGroup = null)   // <— NEW
     {
         if (reference == null || swarmModel.swarmHolder == null) return null;
 
@@ -61,15 +69,23 @@ public class MigrationPointController : MonoBehaviour
 
         GameObject best = null;
         float bestForward = -Mathf.Infinity;
-        float bestLateral = Mathf.Infinity; // tie-breaker: centerline preference
+        float bestLateral = Mathf.Infinity;
 
         foreach (Transform t in swarmModel.swarmHolder.transform)
         {
             GameObject go = t.gameObject;
 
-            // skip self if embodied drone lives under the same holder
+            // skip self
             if (CameraMovement.embodiedDrone != null && go == CameraMovement.embodiedDrone)
                 continue;
+
+            // NEW: filter out drones not in the main group
+            if (allowedGroup != null)
+            {
+                var dc = go.GetComponent<DroneController>();
+                if (dc == null || dc.droneFake == null || !allowedGroup.Contains(dc.droneFake))
+                    continue;
+            }
 
             Vector3 diff = t.position - refPos;
             float forwardDist = Vector3.Dot(diff, fwd);
@@ -94,6 +110,31 @@ public class MigrationPointController : MonoBehaviour
         }
         return best;
     }
+
+
+    void RefreshMainGroupIfNeeded()
+    {
+        if (!restrictToMainGroup) return;
+        if (Time.time < _nextGroupRefreshTime) return;
+        _nextGroupRefreshTime = Time.time + groupRefreshInterval;
+
+        _mainGroup = null;
+
+        var subnetworks = swarmModel.network.GetSubnetworks(); // you already use this elsewhere
+        if (subnetworks == null || subnetworks.Count == 0) return;
+
+        // pick the largest component as the "main swarm group"
+        int maxCount = -1;
+        foreach (var sub in subnetworks)
+        {
+            if (sub != null && sub.Count > maxCount)
+            {
+                maxCount = sub.Count;
+                _mainGroup = sub;
+            }
+        }
+    }
+
 
     void UpdateSwarmHeading(float dt)
     {
@@ -162,26 +203,26 @@ public class MigrationPointController : MonoBehaviour
 
     void AutoSwitchToFrontmost()
     {
-        // Only when embodied, and auto is enabled
         if (!autoSwitchFrontmost) return;
         if (CameraMovement.embodiedDrone == null) return;
 
-        // Respect a small interval instead of every frame
+        // NEW: keep the main-group cache fresh
+        RefreshMainGroupIfNeeded();
+
         if (Time.time < _nextCheckTime) return;
         _nextCheckTime = Time.time + checkInterval;
 
         Transform refTf = CameraMovement.embodiedDrone.transform;
         GameObject currentBest = FindFrontmostDroneInView(
-            refTf, maxViewAngleDeg, minForwardDist);
+            refTf, maxViewAngleDeg, minForwardDist,
+            restrictToMainGroup ? _mainGroup : null); // <— pass group filter
 
-        // No candidate? reset and bail
         if (currentBest == null)
         {
             _candidateFrontmost = null;
             return;
         }
 
-        // If candidate changed, (re)start hold timer
         if (_candidateFrontmost != currentBest)
         {
             _candidateFrontmost = currentBest;
@@ -189,27 +230,22 @@ public class MigrationPointController : MonoBehaviour
             return;
         }
 
-        // Same candidate: check hold-time + cooldown before switching
         bool heldLongEnough = (Time.time - _candidateSinceTime) >= minHoldTime;
         bool cooldownDone   = (Time.time - _lastSwitchTime) >= minSwitchCooldown;
 
         if (heldLongEnough && cooldownDone)
         {
-            // Avoid no-op
             if (_candidateFrontmost != CameraMovement.embodiedDrone)
             {
                 CameraMovement.nextEmbodiedDrone = _candidateFrontmost;
                 _lastSwitchTime = Time.time;
-                // Optional: small haptic tick if you want feedback
-                // this.GetComponent<HapticsTest>()?.VibrateController(0.2f, 0.2f, 0.1f);
-                Debug.Log($"[AutoSwitch] Next embodied (frontmost): " +
+                Debug.Log($"[AutoSwitch] Next embodied (frontmost/main-group): " +
                         _candidateFrontmost.GetComponent<DroneController>().droneFake.id);
             }
-
-            // keep candidate, but reset hold so we won't instantly re-trigger
             _candidateSinceTime = Time.time;
         }
     }
+
 
 
     [Header("Align headings to embodied drone")]
