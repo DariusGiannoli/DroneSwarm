@@ -1521,9 +1521,9 @@ public class HapticsTest : MonoBehaviour
             if (f.sqrMagnitude <= 1e-6f || ringActuators.Count == 0) continue;
 
             // keep your velocity->force gating
-            float threshold = f.magnitude > 3.5f ? 0.3f : 0.7f;
-            if (Vector3.Dot(MigrationPointController.alignementVector.normalized, -f.normalized) <= threshold)
-                continue;
+            // float threshold = f.magnitude > 3.5f ? 0.3f : 0.7f;
+            // if (Vector3.Dot(MigrationPointController.alignementVector.normalized, -f.normalized) <= threshold)
+            //     continue;
 
             // same azimuth computation you used before
             float forceAngle = Vector3.SignedAngle(f, CameraMovement.forward, -CameraMovement.up) - 180f;
@@ -1547,7 +1547,8 @@ public class HapticsTest : MonoBehaviour
             if (best == null || bestAbsDelta > 30f) continue;
 
             float mag = f.magnitude;
-            int vizDuty = (int)(mag / 8.0f);
+            // int vizDuty = (int)(mag / 8.0f);
+            int vizDuty = (int)(mag * 10.0f);
 
             // one actuator per force; if multiple forces target same actuator, keep the strongest
             if (_assignedMagnitude.TryGetValue(best.Adresse, out float existing))
