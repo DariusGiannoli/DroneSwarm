@@ -208,9 +208,9 @@ public class HapticsTest : MonoBehaviour
         //             (sum, t) => sum + t.position) / drones.Count;
         Vector3 c = GetSwarmCentroid(drones);  // or use the centroid function above
 
-        Gizmos.color = Color.cyan;
-        Gizmos.DrawSphere(c, 0.2f);        // 5 cm sphere
-        Gizmos.DrawLine(c, c + Vector3.up); // little “stem” so it’s easy to spot
+        // Gizmos.color = Color.cyan;
+        // Gizmos.DrawSphere(c, 0.2f);        // 5 cm sphere
+        // Gizmos.DrawLine(c, c + Vector3.up); // little “stem” so it’s easy to spot
 #endif
     }
 #endif
@@ -1259,7 +1259,7 @@ public class HapticsTest : MonoBehaviour
             Array.Clear(duty, 0, duty.Length);
             Array.Clear(dutyByTile, 0, dutyByTile.Length);
 
-            HighlightClosestDrone(); // highlight the closest drone to the swarm centroid
+            // HighlightClosestDrone(); // highlight the closest drone to the swarm centroid
 
             foreach (Actuators actuator in finalList)
             {
