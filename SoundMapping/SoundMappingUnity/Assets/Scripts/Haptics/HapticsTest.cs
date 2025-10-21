@@ -795,10 +795,9 @@ public class HapticsTest : MonoBehaviour
     // };
 
     Dictionary<int, int> angleMappingDict = new Dictionary<int, int> {
-    {4, 160},{5, 115},{6, 65},{7, 20}, {120, 200}, {121, 245},{122, 295},{123, 340},
-    {90, 160},{91, 115},{92, 65},{93, 20}, {210, 200}, {211, 245},{212, 295},{213, 340},
-    {0, 340},{1, 295},{2, 245},{3, 200}, {150, 200}, {151, 245},{152, 295},{153, 340},
-    };
+            {4, 160},{5, 115},{6, 65},{7, 20},
+            {0, 340},{1, 295},{2, 245},{3, 200}
+        };
 
     int[] angleMapping = Haptics_Obstacle ? new int[] { 0, 1, 2, 3, 4, 5, 6, 7 } : new int[] { };
     // int[] angleMapping = Haptics_Obstacle ? new int[] { 60, 61, 62, 63, 64, 65, 66, 67 } : new int[] { };
@@ -1318,14 +1317,26 @@ public class PIDActuator : Actuators // creae Ki
         this.refresherFunction = refresh;
     }
 
+    // public void UpdateValue(float newValue)
+    // {
+    //     float error = newValue - referenceValue;
+    //     float derivative = newValue - lastValue;
+
+    //     lastValue = newValue;
+    //     dutyIntensity = Mathf.Max((int)(Kp * error + Kd * derivative), dutyIntensity);
+
+    //     frequency = 2;
+    // }
+
     public void UpdateValue(float newValue)
     {
         float error = newValue - referenceValue;
         float derivative = newValue - lastValue;
-
         lastValue = newValue;
-        dutyIntensity = Mathf.Max((int)(Kp * error + Kd * derivative), dutyIntensity);
-
+        // Calculate the raw PID output
+        float pidOutput = Kp * error + Kd * derivative;
+        // Set the duty intensity, clamping it between 0 and 14
+        dutyIntensity = Mathf.Clamp(Mathf.RoundToInt(pidOutput), 0, 14);
         frequency = 2;
     }
 
