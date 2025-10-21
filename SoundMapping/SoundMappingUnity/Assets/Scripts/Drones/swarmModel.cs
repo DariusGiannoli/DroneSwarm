@@ -237,30 +237,30 @@ public class swarmModel : MonoBehaviour
         }
 
         // ids check
-        _idPrintCooldown -= Time.fixedDeltaTime;
-        if (_idPrintCooldown <= 0f)
-        {
-            _idPrintCooldown = 2.0f;
+        // _idPrintCooldown -= Time.fixedDeltaTime;
+        // if (_idPrintCooldown <= 0f)
+        // {
+        //     _idPrintCooldown = 2.0f;
 
-            var seenId  = new HashSet<int>();
-            var seenIdS = new HashSet<string>();
+        //     var seenId  = new HashSet<int>();
+        //     var seenIdS = new HashSet<string>();
 
-            foreach (var d in drones)
-            {
-                if (d == null) continue;
-                string s = string.IsNullOrEmpty(d.idS) ? "(null/empty)" : d.idS;
-                // Debug.Log($"[ID CHECK] name:{d.gameObject?.name}  id:{d.id}  idS:{s}");
-                Debug.Log($"[ID CHECK] id:{d.id}  idS:{s}");
+        //     foreach (var d in drones)
+        //     {
+        //         if (d == null) continue;
+        //         string s = string.IsNullOrEmpty(d.idS) ? "(null/empty)" : d.idS;
+        //         // Debug.Log($"[ID CHECK] name:{d.gameObject?.name}  id:{d.id}  idS:{s}");
+        //         Debug.Log($"[ID CHECK] id:{d.id}  idS:{s}");
 
 
-                if (!seenId.Add(d.id))
-                    Debug.LogWarning($"[ID COLLISION] duplicate id: {d.id}");
-                if (!seenIdS.Add(s))
-                    Debug.LogWarning($"[ID COLLISION] duplicate idS: {s}");
-            }
+        //         if (!seenId.Add(d.id))
+        //             Debug.LogWarning($"[ID COLLISION] duplicate id: {d.id}");
+        //         if (!seenIdS.Add(s))
+        //             Debug.LogWarning($"[ID COLLISION] duplicate idS: {s}");
+        //     }
 
-            Debug.Log($"[ID SUMMARY] N={drones.Count}  unique id:{seenId.Count}  unique idS:{seenIdS.Count}");
-        }
+        //     Debug.Log($"[ID SUMMARY] N={drones.Count}  unique id:{seenId.Count}  unique idS:{seenIdS.Count}");
+        // }
 
         
     }

@@ -449,7 +449,7 @@ public class MigrationPointController : MonoBehaviour
                 }
             }
 
-            this.GetComponent<HapticsTest>().VibrateController(0.3f, 0.3f, 0.2f); // selection vibration
+            // this.GetComponent<HapticsTest>().VibrateController(0.3f, 0.3f, 0.2f); // selection vibration
         }
 
         // button 0
