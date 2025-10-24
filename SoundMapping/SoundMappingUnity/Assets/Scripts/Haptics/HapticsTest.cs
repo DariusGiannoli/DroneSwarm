@@ -71,10 +71,10 @@ public class HapticsTest : MonoBehaviour
 
     // public static readonly int[] ObstacleAddrs =
     // { 60, 61, 62, 63, 64, 65, 66, 67 };
-    // public static readonly int[] ObstacleAddrs =
-    // { 16, 17, 18, 19, 20, 21, 22, 23 };
     public static readonly int[] ObstacleAddrs =
-    { 0, 1, 2, 3, 4, 5, 6, 7 };
+    { 16, 17, 18, 19, 20, 21, 22, 23 };
+    // public static readonly int[] ObstacleAddrs =
+    // { 0, 1, 2, 3, 4, 5, 6, 7 };
 
     // public static int[] GetObstacleDutySnapshot()   // 8 长度
     // {
@@ -186,7 +186,6 @@ public class HapticsTest : MonoBehaviour
 #if UNITY_EDITOR            // keeps the code out of runtime builds
     void OnDrawGizmos()
     {
-#if UNITY_EDITOR        // avoid shipping gizmo code in builds
         var drones = FindObjectsOfType<DroneController>()
              .Select(d => d.transform).ToList();
         if (drones == null || drones.Count == 0) return;
@@ -198,7 +197,6 @@ public class HapticsTest : MonoBehaviour
         // Gizmos.color = Color.cyan;
         // Gizmos.DrawSphere(c, 0.2f);        // 5 cm sphere
         // Gizmos.DrawLine(c, c + Vector3.up); // little “stem” so it’s easy to spot
-#endif
     }
 #endif
 
@@ -728,7 +726,7 @@ public class HapticsTest : MonoBehaviour
 
     private Coroutine hapticsCoroutine = null;
 
-    Dictionary<AnimatedActuator, IEnumerator> animatedActuators = new Dictionary<AnimatedActuator, IEnumerator>();
+    // Dictionary<AnimatedActuator, IEnumerator> animatedActuators = new Dictionary<AnimatedActuator, IEnumerator>();
 
     /// <summary>Latest centre of the swarm on the ground plane (player-centric X-Z).</summary>
     public static Vector2 swarmCentroid2D = Vector2.zero;
@@ -764,7 +762,7 @@ public class HapticsTest : MonoBehaviour
 {
     // --- ADD THESE CONSTANTS for clarity ---
     const int DRONE_SLAVE_ID = 0;    // Haptics for the main drone swarm
-    const int OBSTACLE_SLAVE_ID = 1; // Haptics for obstacles
+    const int OBSTACLE_SLAVE_ID = 0; // Haptics for obstacles
 
     VibraForge.Reset();
     print("HapticsTest Start");
@@ -775,7 +773,7 @@ public class HapticsTest : MonoBehaviour
     actuatorsMovingPlane = new List<Actuators>();
     crashActuators = new List<Actuators>();
     lastDefined = new List<Actuators>();
-    animatedActuators = new Dictionary<AnimatedActuator, IEnumerator>();
+    // animatedActuators = new Dictionary<AnimatedActuator, IEnumerator>();
 
     _swarmFrame = new GameObject("SwarmFrame").transform;
     _swarmFrame.gameObject.hideFlags = HideFlags.HideInHierarchy;   // keep Hierarchy clean
@@ -788,20 +786,20 @@ public class HapticsTest : MonoBehaviour
     //      {60, 340},{61, 295},{62, 245},{63, 200}, {150, 200}, {151, 245},{152, 295},{153, 340},
     // };
 
-    // Dictionary<int, int> angleMappingDict = new Dictionary<int, int> {
-    //     {20, 160},{21, 115},{22, 65},{23, 20}, {120, 200}, {121, 245},{122, 295},{123, 340},
-    //     {90, 160},{91, 115},{92, 65},{93, 20}, {210, 200}, {211, 245},{212, 295},{213, 340},
-    //      {16, 340},{17, 295},{18, 245},{19, 200}, {150, 200}, {151, 245},{152, 295},{153, 340},
-    // };
-
     Dictionary<int, int> angleMappingDict = new Dictionary<int, int> {
-            {4, 160},{5, 115},{6, 65},{7, 20},
-            {0, 340},{1, 295},{2, 245},{3, 200}
-        };
+        {20, 160},{21, 115},{22, 65},{23, 20}, {120, 200}, {121, 245},{122, 295},{123, 340},
+        {90, 160},{91, 115},{92, 65},{93, 20}, {210, 200}, {211, 245},{212, 295},{213, 340},
+         {16, 340},{17, 295},{18, 245},{19, 200}, {150, 200}, {151, 245},{152, 295},{153, 340},
+    };
 
-    int[] angleMapping = Haptics_Obstacle ? new int[] { 0, 1, 2, 3, 4, 5, 6, 7 } : new int[] { };
+    // Dictionary<int, int> angleMappingDict = new Dictionary<int, int> {
+    //         {4, 160},{5, 115},{6, 65},{7, 20},
+    //         {0, 340},{1, 295},{2, 245},{3, 200}
+    //     };
+
+    // int[] angleMapping = Haptics_Obstacle ? new int[] { 0, 1, 2, 3, 4, 5, 6, 7 } : new int[] { };
     // int[] angleMapping = Haptics_Obstacle ? new int[] { 60, 61, 62, 63, 64, 65, 66, 67 } : new int[] { };
-    // int[] angleMapping = Haptics_Obstacle ? new int[] { 16, 17, 18, 19, 20, 21, 22, 23 } : new int[] { };
+    int[] angleMapping = Haptics_Obstacle ? new int[] { 16, 17, 18, 19, 20, 21, 22, 23 } : new int[] { };
     int[] crashMapping = Haptics_Crash ? new int[] { 4, 5, 124, 125 } : new int[] { };
 
     // --- OBSTACLE ACTUATOR CREATION ---
@@ -926,17 +924,17 @@ public class HapticsTest : MonoBehaviour
     }
 
 
-    void animationHandler(int start, AnimatedActuator actuator)
-    {
-        if(animatedActuators.ContainsKey(actuator)) {
-            StopCoroutine(animatedActuators[actuator]);
-            actuator.stopAnimation();
-        }
+    // void animationHandler(int start, AnimatedActuator actuator)
+    // {
+    //     if(animatedActuators.ContainsKey(actuator)) {
+    //         StopCoroutine(animatedActuators[actuator]);
+    //         actuator.stopAnimation();
+    //     }
 
-        actuator.defineAnimation(start, actuator.dutyIntensity);
-        animatedActuators[actuator] = hapticAnimation(start, actuator);
-        StartCoroutine(animatedActuators[actuator]);
-    }
+    //     actuator.defineAnimation(start, actuator.dutyIntensity);
+    //     animatedActuators[actuator] = hapticAnimation(start, actuator);
+    //     StartCoroutine(animatedActuators[actuator]);
+    // }
 
 
     #region ForceActuators
@@ -998,6 +996,7 @@ public class HapticsTest : MonoBehaviour
             actuator.UpdateValue(mag);
             dutyObstacle[actuator.Adresse] = _assignedDuty[actuator.Adresse]; // for visualization
             // Debug.Log($"[CloseToWallrefresherFunction] addr={actuator.Adresse} assigned mag={mag:F3} duty={_assignedDuty[actuator.Adresse]}");
+
             return;
         }
         else
@@ -1023,8 +1022,6 @@ public class HapticsTest : MonoBehaviour
         var ringActuators = actuatorsRange.Where(a => a.Angle >= 0)
                                  .OfType<PIDActuator>()
                                  .ToList();
-        // Optional vertical actuator(s)
-        var verticalActs  = actuatorsRange.Where(a => a.Angle < 0).ToList();
 
         var assignedForce = new bool[forces.Count]; // track which forces were consumed by a ring actuator
 
@@ -1260,25 +1257,25 @@ public class HapticsTest : MonoBehaviour
     #endregion
 }
 
-public class AnimatedActuator: RefresherActuator
-{
-    int animationEnd = 0;
-    int animationStart = 0;
+// public class AnimatedActuator: RefresherActuator
+// {
+//     int animationEnd = 0;
+//     int animationStart = 0;
 
-    public void defineAnimation(int start, int end)
-    {
-        animationStart = start;
-        animationEnd = end;
-    }
+//     public void defineAnimation(int start, int end)
+//     {
+//         animationStart = start;
+//         animationEnd = end;
+//     }
 
-    public void stopAnimation()
-    {
-        VibraForge.SendCommand(0, Adresse, 0, 0, 1);
-    }
-    public AnimatedActuator(int adresse, float angle, updateFunction refresh) : base(adresse, angle, refresh)
-    {
-    }
-}
+//     public void stopAnimation()
+//     {
+//         VibraForge.SendCommand(0, Adresse, 0, 0, 1);
+//     }
+//     public AnimatedActuator(int adresse, float angle, updateFunction refresh) : base(adresse, angle, refresh)
+//     {
+//     }
+// }
 
 public class RefresherActuator: Actuators
 {
@@ -1328,15 +1325,28 @@ public class PIDActuator : Actuators // creae Ki
     //     frequency = 2;
     // }
 
+    // public void UpdateValue(float newValue)
+    // {
+    //     float error = newValue - referenceValue;
+    //     float derivative = newValue - lastValue;
+    //     lastValue = newValue;
+    //     // Calculate the raw PID output
+    //     float pidOutput = Kp * error + Kd * derivative;
+    //     // Set the duty intensity, clamping it between 0 and 14
+    //     dutyIntensity = Mathf.Clamp(Mathf.RoundToInt(pidOutput), 0, 14);
+    //     frequency = 2;
+    // }
+
     public void UpdateValue(float newValue)
     {
-        float error = newValue - referenceValue;
-        float derivative = newValue - lastValue;
+        // 把 newValue 映射到 0..14，可按需要缩放
+        // 例：障碍力幅值≈0..1 → 乘以 10 得到 0..10 的占空比
+        float p = 10f * newValue;                  // ← 调整这个“10f”匹配你的幅值范围
+        float d = Kd * (newValue - lastValue);     // 保留微分做“变化增强”
         lastValue = newValue;
-        // Calculate the raw PID output
-        float pidOutput = Kp * error + Kd * derivative;
-        // Set the duty intensity, clamping it between 0 and 14
-        dutyIntensity = Mathf.Clamp(Mathf.RoundToInt(pidOutput), 0, 14);
+
+        float outF = p + d;                        // 先按幅值给基线，再加微分
+        dutyIntensity = Mathf.Clamp(Mathf.RoundToInt(outF), 0, 14);
         frequency = 2;
     }
 
@@ -1399,15 +1409,18 @@ public class Actuators
 
     public virtual void sendValue()
     {
-        if( lastSendFrequency != frequency || lastSendDuty != duty) {
-            // --- MODIFIED LINE ---
-            // Add "this.SlaveId" as the first parameter to the SendCommand call.
-            VibraForge.SendCommand(this.SlaveId, Adresse, (int)duty == 0 ? 0:1, (int)duty, (int)frequency);
+    //     if( lastSendFrequency != frequency || lastSendDuty != duty) {
+    //         // --- MODIFIED LINE ---
+    //         // Add "this.SlaveId" as the first parameter to the SendCommand call.
+    //         VibraForge.SendCommand(this.SlaveId, Adresse, (int)duty == 0 ? 0:1, (int)duty, (int)frequency);
             
-            lastSendDuty = duty;
-            lastSendFrequency = frequency;
-    //      Debug.Log("Send Command: " + Adresse + " Duty: " + duty + " Frequency: " + frequency);
-        }
+    //         lastSendDuty = duty;
+    //         lastSendFrequency = frequency;
+    // //      Debug.Log("Send Command: " + Adresse + " Duty: " + duty + " Frequency: " + frequency);
+    //     }
+
+        VibraForge.SendCommand(this.SlaveId, Adresse, (int)duty == 0 ? 0:1, (int)duty, (int)frequency);
+
     }
 
     public IEnumerator sendDelayedVal(float delay)
