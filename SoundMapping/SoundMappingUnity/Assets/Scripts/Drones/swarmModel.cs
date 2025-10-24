@@ -272,8 +272,8 @@ public class swarmModel : MonoBehaviour
         if (scorePlottingThread != null && scorePlottingThread.IsAlive)
             scorePlottingThread.Join(100);
 
-        if (saveData)
-            saveInfoToJSON.exportData(true);
+        // if (saveData)
+        //     saveInfoToJSON.exportData(true);
     }
 
     #endregion
