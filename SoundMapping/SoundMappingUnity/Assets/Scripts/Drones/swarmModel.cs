@@ -163,6 +163,12 @@ public class swarmModel : MonoBehaviour
     [Tooltip("Optional extra shaping: gain^gamma. 1 = no change.")]
     public float activationGamma = 1.0f;
 
+    [Header("Swarm Spawn Center (World)")]
+    public Vector3 spawnCenterWorld = Vector3.zero;
+
+    // 方式B：可选：用场景中的一个锚点（优先级更高）
+    public Transform spawnCenterAnchor;
+
     #endregion
 
     #region Internal score-thread scaffolding
@@ -360,12 +366,20 @@ public class swarmModel : MonoBehaviour
         bool startEmbodied = LevelConfiguration._startEmbodied;
         int droneID = LevelConfiguration._droneID;
 
+        Vector3 center = (spawnCenterAnchor != null) ? spawnCenterAnchor.position : spawnCenterWorld;
+
+
         for (int i = 0; i < numDrones; i++)
         {
-            Vector3 spawnPosition = new Vector3(
+            // Vector3 spawnPosition = new Vector3(
+            //     spawnRadius * Mathf.Cos(i * 2 * Mathf.PI / numDrones),
+            //     spawnHeight + UnityEngine.Random.Range(-0.5f, 0.5f),
+            //     spawnRadius * Mathf.Sin(i * 2 * Mathf.PI / numDrones));
+            Vector3 spawnPosition = center + new Vector3(
                 spawnRadius * Mathf.Cos(i * 2 * Mathf.PI / numDrones),
                 spawnHeight + UnityEngine.Random.Range(-0.5f, 0.5f),
                 spawnRadius * Mathf.Sin(i * 2 * Mathf.PI / numDrones));
+
 
             GameObject drone = Instantiate(dronePrefab, spawnPosition, Quaternion.identity);
             drone.GetComponent<DroneController>().droneFake = new DroneFake(spawnPosition, Vector3.zero, false, i);
@@ -896,7 +910,7 @@ public class swarmModel : MonoBehaviour
 
         // -------- Draw centroid marker --------
         Gizmos.color = Color.cyan;
-        Gizmos.DrawSphere(centroid, 0.2f);
+        Gizmos.DrawSphere(centroid, 0.2f); //0.2f
         Gizmos.DrawLine(centroid, centroid + Vector3.up * 0.5f);
 
         // -------- Draw ellipsoid wireframe --------
