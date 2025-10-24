@@ -34,6 +34,13 @@ public class SceneSelectorScript : MonoBehaviour
 
     public bool hapticsEnabled = true;
 
+    // === NEW: autoload toggle ===
+    [Header("Auto-load on Play")]
+    public bool autoLoadOnStart = true;
+
+    // Use the exact scene name (file name without .unity)
+    public string autoLoadSceneName = "FPVObs_2";
+
     void Start()
     {
      //   XboxScreenRecorder.StartRecording();
@@ -50,6 +57,37 @@ public class SceneSelectorScript : MonoBehaviour
             scenes.Add(sceneName);
         }
         #endif
+        
+        // ✅ Use the experiment flow so all flags are set and swarm spawns
+        if (autoLoadOnStart && !string.IsNullOrEmpty(autoLoadSceneName))
+        {
+            AutoSelectThroughExperimentFlow(autoLoadSceneName);  // <— use this
+            // (Remove the direct StartCoroutine(LoadTrainingScene(...)) call.)
+        }
+    }
+
+    private void AutoSelectThroughExperimentFlow(string sceneName)
+    {
+        _haptics = hapticsEnabled;
+
+        // if your GUI disabling is required for state, keep it (guard against missing component)
+        var gui = GetComponent<ExperimentSetupS>();
+        if (gui) gui.GUIIDisable();
+
+        scenesPlayed = new List<string>(scenes);
+        addStudyScene();
+
+        // Position experimentNumber so NextScene() advances to the desired scene
+        experimentNumber = scenesPlayed.IndexOf(sceneName) - 1;
+
+        if (experimentNumber < -1)
+        {
+            Debug.LogWarning($"[SceneSelector] '{sceneName}' not found in scenesPlayed; falling back to direct load.");
+            StartCoroutine(LoadTrainingScene(sceneName)); // last-resort fallback
+            return;
+        }
+
+        NextScene(); // this will call SelectTraining(...) → LoadTrainingScene(...)
     }
 
     public void OnHapticsChanged()
