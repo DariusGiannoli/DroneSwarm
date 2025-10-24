@@ -2063,7 +2063,7 @@ MonoBehaviour:
   m_faceColor:
     serializedVersion: 2
     rgba: 4294967295
-  m_fontSize: 10.45
+  m_fontSize: 10
   m_fontSizeBase: 36
   m_fontWeight: 400
   m_enableAutoSizing: 1
@@ -2901,7 +2901,7 @@ MonoBehaviour:
   m_faceColor:
     serializedVersion: 2
     rgba: 4294967295
-  m_fontSize: 11.4
+  m_fontSize: 13.65
   m_fontSizeBase: 36
   m_fontWeight: 400
   m_enableAutoSizing: 1
@@ -3623,6 +3623,7 @@ GameObject:
   - component: {fileID: 1573697206}
   - component: {fileID: 1573697209}
   - component: {fileID: 1573697210}
+  - component: {fileID: 1573697211}
   m_Layer: 0
   m_Name: Gamemanager
   m_TagString: GameManager
@@ -3706,6 +3707,8 @@ MonoBehaviour:
   activationHorizontalOnly: 0
   activationUseSmoothStep: 1
   activationGamma: 1
+  spawnCenterWorld: {x: 0, y: 0, z: 0}
+  spawnCenterAnchor: {fileID: 0}
 --- !u!114 &1573697195
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -3980,6 +3983,32 @@ MonoBehaviour:
     m_ColorSpace: -1
     m_NumColorKeys: 3
     m_NumAlphaKeys: 2
+--- !u!114 &1573697211
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1573697189}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4f086c779c2b3490dac525b5fdb14350, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  swarmRootTag: Swarm
+  swarmRootName: Swarm
+  rescanChildrenEverySec: 1
+  droneComponentTypeName: DroneController
+  sampleHz: 30
+  waitForDronesToStart: 1
+  dontDestroyOnLoad: 1
+  lazyDiscover: 1
+  outSubfolder: Trajectories_1022
+  pidOverride: 
+  autosaveEverySec: 0
+  setupSceneName: Scene Selector
+  enableHotkeySave: 1
+  swarmRoot: {fileID: 1547257216}
 --- !u!1 &1645719226
 GameObject:
   m_ObjectHideFlags: 0
@@ -4214,7 +4243,7 @@ MonoBehaviour:
   m_faceColor:
     serializedVersion: 2
     rgba: 4294967295
-  m_fontSize: 15.2
+  m_fontSize: 17.4
   m_fontSizeBase: 36
   m_fontWeight: 400
   m_enableAutoSizing: 1
