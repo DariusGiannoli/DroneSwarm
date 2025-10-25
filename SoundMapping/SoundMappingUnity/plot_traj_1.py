@@ -134,6 +134,54 @@ else:
 centroid = np.column_stack([centroid_x, centroid_z])
 centroid_err = np.array([dist_point_to_polyline(p, ref_poly) for p in centroid], dtype=float)
 
+# --------- METRICS ---------
+# total time
+if len(centroid_err) > 0:
+    if use_time:
+        total_time_s = float(times[-1] - times[0])
+    else:
+        # try to infer from JSON if no per-frame times
+        sample_hz = data.get("sampleHz", None)
+        if isinstance(sample_hz, (int, float)) and sample_hz and sample_hz > 0:
+            total_time_s = float((len(times) - 1) / sample_hz)
+        else:
+            total_time_s = float("nan")
+else:
+    total_time_s = 0.0
+
+# average centroid-to-reference distance
+avg_err_m = float(np.mean(centroid_err)) if len(centroid_err) else float("nan")
+
+# survivors = drones with g==1 on their final recorded frame
+survivors = 0
+with_g = 0
+for name, d in drone_tracks.items():
+    g = d.get("g", None)
+    if g is None or len(g) == 0:
+        continue
+    with_g += 1
+    if int(g[-1]) == 1:
+        survivors += 1
+
+print("=== RUN METRICS ===")
+print(f"Total time: {total_time_s:.2f} s")
+print(f"Average centroid→reference distance: {avg_err_m:.3f} m")
+print(f"Survived drones (final g==1): {survivors} / {with_g} (with g-labels), total drones: {len(drone_tracks)}")
+
+# (optional) also write to a sidecar text file next to your PNGs
+metrics_txt = Path(OUT_ERR_PNG).with_suffix(".metrics.txt")
+metrics_txt.write_text(
+    f"file: {INPUT_JSON}\n"
+    f"scene: {scene}\n"
+    f"total_time_s: {total_time_s:.3f}\n"
+    f"avg_centroid_ref_dist_m: {avg_err_m:.6f}\n"
+    f"survivors_final_g1: {survivors}\n"
+    f"drones_with_g_label: {with_g}\n"
+    f"total_drones: {len(drone_tracks)}\n"
+)
+print(f"(metrics saved to) {metrics_txt}")
+
+
 plt.figure(figsize=(8, 8))
 for name, d in drone_tracks.items():
     plt.plot(d["x"], d["z"], alpha=0.25)
@@ -157,3 +205,5 @@ plt.grid(True, alpha=0.3)
 plt.tight_layout(); plt.savefig(OUT_ERR_PNG, dpi=150); plt.show()
 
 OUT_TRAJ_PNG, OUT_ERR_PNG, str(INPUT_JSON)
+
+
