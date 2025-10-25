@@ -116,6 +116,29 @@ public class MigrationPointController : MonoBehaviour
     }
 
 
+    // void RefreshMainGroupIfNeeded()
+    // {
+    //     if (!restrictToMainGroup) return;
+    //     if (Time.time < _nextGroupRefreshTime) return;
+    //     _nextGroupRefreshTime = Time.time + groupRefreshInterval;
+
+    //     _mainGroup = null;
+
+    //     var subnetworks = swarmModel.network.GetSubnetworks(); // you already use this elsewhere
+    //     if (subnetworks == null || subnetworks.Count == 0) return;
+
+    //     // pick the largest component as the "main swarm group"
+    //     int maxCount = -1;
+    //     foreach (var sub in subnetworks)
+    //     {
+    //         if (sub != null && sub.Count > maxCount)
+    //         {
+    //             maxCount = sub.Count;
+    //             _mainGroup = sub;
+    //         }
+    //     }
+    // }
+
     void RefreshMainGroupIfNeeded()
     {
         if (!restrictToMainGroup) return;
@@ -124,21 +147,43 @@ public class MigrationPointController : MonoBehaviour
 
         _mainGroup = null;
 
-        var subnetworks = swarmModel.network.GetSubnetworks(); // you already use this elsewhere
+        // Get all subnetworks from the existing swarmModel.network
+        var subnetworks = swarmModel.network.GetSubnetworks();
         if (subnetworks == null || subnetworks.Count == 0) return;
 
-        // pick the largest component as the "main swarm group"
-        int maxCount = -1;
+        // Identify the seed: the currently embodied drone's DroneFake
+        var embodiedGO = CameraMovement.embodiedDrone;
+        if (embodiedGO == null) return;
+
+        var embodiedDC = embodiedGO.GetComponent<DroneController>();
+        if (embodiedDC == null || embodiedDC.droneFake == null) return;
+
+        var embodiedFake = embodiedDC.droneFake;
+
+        // Pick the subnetwork that contains the embodied drone
         foreach (var sub in subnetworks)
         {
-            if (sub != null && sub.Count > maxCount)
+            if (sub != null && sub.Contains(embodiedFake))
             {
-                maxCount = sub.Count;
                 _mainGroup = sub;
+                break;
+            }
+        }
+
+        // Optional fallback: if somehow not found (e.g., transient), keep the largest set
+        if (_mainGroup == null)
+        {
+            int maxCount = -1;
+            foreach (var sub in subnetworks)
+            {
+                if (sub != null && sub.Count > maxCount)
+                {
+                    maxCount = sub.Count;
+                    _mainGroup = sub;
+                }
             }
         }
     }
-
 
     void UpdateSwarmHeading(float dt)
     {
