@@ -56,6 +56,10 @@ public class MigrationPointController : MonoBehaviour
     private HashSet<DroneFake> _mainGroup = null;
     private float _nextGroupRefreshTime = 0f;
 
+    [Header("Embodiment Input Gates")]
+    public bool allowManualSelection = false;    // disables selection by buttons 4/5 when false
+    public bool allowManualEmbodiment = false;   // disables button 0 embodiment when false
+
 
     GameObject FindFrontmostDroneInView(Transform reference,
                                         float maxAngleDeg,
@@ -311,7 +315,8 @@ public class MigrationPointController : MonoBehaviour
             swarmModel.dummyForcesApplied = !swarmModel.dummyForcesApplied;
         }       
 
-        if((Input.GetKeyDown("joystick button " + 5) || Input.GetKeyDown("joystick button " + 4)) && control_selection) //selection
+        // if((Input.GetKeyDown("joystick button " + 5) || Input.GetKeyDown("joystick button " + 4)) && control_selection) //selection
+        if (allowManualSelection && (Input.GetKeyDown("joystick button " + 5) || Input.GetKeyDown("joystick button " + 4)) && control_selection) // selection
         {
             if(selectedDrone == null && CameraMovement.embodiedDrone == null) // if nothing selected
             {
@@ -453,7 +458,8 @@ public class MigrationPointController : MonoBehaviour
         }
 
         // button 0
-        if(Input.GetKeyDown("joystick button " + 0) && control_embodiement) //embodiement
+        // if(Input.GetKeyDown("joystick button " + 0) && control_embodiement) //embodiement
+        if (allowManualEmbodiment && Input.GetKeyDown("joystick button " + 0) && control_embodiement) // embodiment
         {
 
             if(CameraMovement.embodiedDrone != null)
