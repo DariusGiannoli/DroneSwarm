@@ -1,130 +1,168 @@
-// SwarmTrajectoriesOnly.cs
-// Record only trajectories of all drones into a single JSON file.
-// Editor: saves under Assets/Data/<PID>/<outSubfolder>
-// Build : saves under persistentDataPath/Data/<PID>/<outSubfolder>
+// SwarmTrajectoryRecorder.cs  (with adjustable recording frequency)
+// ... (header comments unchanged)
 
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Text.RegularExpressions;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
 #if UNITY_EDITOR
-using UnityEditor; // AssetDatabase.Refresh, EditorUtility.RevealInFinder
+using UnityEditor;
 #endif
 
-public class SwarmTrajectoriesOnly : MonoBehaviour
+public class SwarmTrajectoryRecorder : MonoBehaviour
 {
-    [Header("Runtime Swarm discovery")]
-    [Tooltip("Tag of the Swarm root (optional but recommended).")]
+    // -------------------- Configuration --------------------
+    [Header("Swarm root discovery")]
     public string swarmRootTag = "Swarm";
-    [Tooltip("Fallback: exact name of the Swarm root if tag lookup fails.")]
     public string swarmRootName = "Swarm";
-    [Tooltip("Re-scan Swarm children periodically to catch late-spawned drones (0=off).")]
     public float rescanChildrenEverySec = 1f;
 
     [Header("Drone discovery")]
-    [Tooltip("Component type name on each drone (e.g., DroneController).")]
     public string droneComponentTypeName = "DroneController";
 
     [Header("Sampling")]
-    [Tooltip("Samples per second. Set 0 to sample every frame.")]
+    [Tooltip("Samples per second (<=0 = every Update).")]
     public float sampleHz = 30f;
-    [Tooltip("Start sampling only after at least one drone is found.")]
     public bool waitForDronesToStart = true;
 
+    [Header("Recording frequency")]
+    [Tooltip("Records per second (independent of sampleHz). 0 = record every sample.")]
+    public float recordHz = 0f;
+    [Tooltip("If recordHz==0, record every Nth sample (1 = every sample).")]
+    public int recordEveryNthSample = 1;
+
     [Header("Lifecycle")]
-    [Tooltip("Keep this recorder alive across scene loads.")]
     public bool dontDestroyOnLoad = true;
-    [Tooltip("Keep trying to discover swarm/drones while running.")]
     public bool lazyDiscover = true;
 
-    [Header("Output")]
-    [Tooltip("Subfolder under Assets/Data/<PID>/ or persistentDataPath/Data/<PID>/.")]
+    [Header("Output location")]
     public string outSubfolder = "Trajectories";
-    [Tooltip("If empty, tries SceneSelectorScript.pid; else uses PID_Default.")]
     public string pidOverride = "";
 
-    [Header("Quality of life")]
-    [Tooltip("Autosave every N seconds (0 = off).")]
-    public float autosaveEverySec = 0f;
-    [Tooltip("Name of your setup/selector scene (skip saving when disabling there).")]
+    [Header("Output naming")]
+    public string sceneLabelOverride = "";
     public string setupSceneName = "Scene Selector";
-    [Tooltip("Press F7 to force a save while playing.")]
+
+    [Header("Quality of life")]
+    public float autosaveEverySec = 0f;
     public bool enableHotkeySave = true;
 
-    // ---- Internals ----
-    public Transform swarmRoot; // assigned once found
+    [Header("Main group selection")]
+    public bool useNetworkForMainGroup = true;
+    public bool includeAllUntilNetworkReady = true;
+
+    [Header("Proximity fallback")]
+    public float linkDistance = 3f;
+    public int minMainGroupSize = 3;
+    public bool useXZDistance = true;
+
+    // -------------------- Internals --------------------
+    public Transform swarmRoot;
     private readonly Dictionary<int, DroneTraj> _trajById = new Dictionary<int, DroneTraj>();
     private readonly List<Transform> _droneTransforms = new List<Transform>();
     private float _accum, _discoverTimer, _swarmFindTimer, _childrenRescanTimer, _autosaveTimer;
     private int _lastChildCount = -1;
     private bool _samplingEnabled;
 
-    // ---- Serializable data types ----
-    [Serializable] public struct TrajFrame { public float t, x, y, z; }
-    [Serializable] public class DroneTraj { public int id; public string name; public List<TrajFrame> frames = new List<TrajFrame>(4096); }
-    [Serializable] public class TrajectoryLog
+    // NEW: recording schedulers
+    private float _recordAccum = 0f;
+    private int _sampleIndex = 0;
+
+    // Singleton + save debounce
+    private static SwarmTrajectoryRecorder _instance;
+    private enum SaveReason { Auto, Manual, Final }
+    private bool _finalized;
+    private float _lastSaveRealtime;
+    private const float SaveDebounceSec = 0.25f;
+
+    // -------------------- Data types --------------------
+    [Serializable]
+    public struct TrajFrame
+    {
+        public float t;
+        public float x, y, z;
+        public byte g; // 0 = not in main group; 1 = in main group
+    }
+
+    [Serializable]
+    public class DroneTraj
+    {
+        public int id;
+        public string name;
+        public List<TrajFrame> frames = new List<TrajFrame>(4096);
+    }
+
+    [Serializable]
+    public class TrajectoryLog
     {
         public string scene;
         public string pid;
-        public string haptics;  // "H" or "NH"
-        public string order;    // "O" or "NO"
+        public string haptics;
+        public string order;
         public float sampleHz;
         public List<DroneTraj> trajectories = new List<DroneTraj>();
     }
 
-    // ---------------- Unity ----------------
-    void Awake()
+    // -------------------- Unity lifecycle --------------------
+    private void Awake()
     {
-        if (dontDestroyOnLoad)
-        {
-            DontDestroyOnLoad(gameObject);
-            Debug.Log("[SwarmTrajectoriesOnly] DontDestroyOnLoad enabled.");
-        }
+        if (_instance != null && _instance != this) { Destroy(gameObject); return; }
+        _instance = this;
+
+        if (dontDestroyOnLoad) DontDestroyOnLoad(gameObject);
         SceneManager.sceneLoaded += OnSceneLoaded;
-    }
 
-    void OnDestroy() => SceneManager.sceneLoaded -= OnSceneLoaded;
-
-    void OnEnable()
-    {
-        Debug.Log($"[SwarmTrajectoriesOnly] OnEnable. Editor? {Application.isEditor}. persistentDataPath={Application.persistentDataPath}");
         _accum = _autosaveTimer = 0f;
-        TryFindSwarmRootNow();
-        CollectDrones(); // no-op until swarm found
-        _samplingEnabled = !waitForDronesToStart || _droneTransforms.Count > 0;
+        _recordAccum = 0f; _sampleIndex = 0;
     }
 
-    void OnSceneLoaded(Scene s, LoadSceneMode m)
+    private void OnDestroy()
     {
-        Debug.Log($"[SwarmTrajectoriesOnly] Scene loaded: {s.name}");
-        _trajById.Clear();
-        _droneTransforms.Clear();
-        _lastChildCount = -1;
+        if (_instance == this) _instance = null;
+        SceneManager.sceneLoaded -= OnSceneLoaded;
+    }
+
+    private void OnEnable()
+    {
         TryFindSwarmRootNow();
         CollectDrones();
         _samplingEnabled = !waitForDronesToStart || _droneTransforms.Count > 0;
     }
 
-    void Update()
+    private void OnSceneLoaded(Scene s, LoadSceneMode m)
     {
-        if (enableHotkeySave && Input.GetKeyDown(KeyCode.F7))
-        {
-            Debug.Log("[SwarmTrajectoriesOnly] F7 -> Save()");
-            TrySave();
-        }
+        _trajById.Clear();
+        _droneTransforms.Clear();
+        _lastChildCount = -1;
 
-        // Find Swarm root if it appears later
+        TryFindSwarmRootNow();
+        CollectDrones();
+        _samplingEnabled = !waitForDronesToStart || _droneTransforms.Count > 0;
+
+        // reset schedulers on scene change
+        _accum = _autosaveTimer = 0f;
+        _recordAccum = 0f; _sampleIndex = 0;
+    }
+
+    private void Update()
+    {
+        if (enableHotkeySave && Input.GetKeyDown(KeyCode.F7)) TrySave(SaveReason.Manual);
+
         _swarmFindTimer += Time.deltaTime;
         if (!swarmRoot && _swarmFindTimer >= 0.5f)
         {
             _swarmFindTimer = 0f;
             TryFindSwarmRootNow();
-            if (swarmRoot) { CollectDrones(); _samplingEnabled = !waitForDronesToStart || _droneTransforms.Count > 0; }
+            if (swarmRoot)
+            {
+                CollectDrones();
+                _samplingEnabled = !waitForDronesToStart || _droneTransforms.Count > 0;
+            }
         }
 
-        // Lazy discover drones if none yet
         if (lazyDiscover && swarmRoot && _droneTransforms.Count == 0)
         {
             _discoverTimer += Time.deltaTime;
@@ -133,13 +171,10 @@ public class SwarmTrajectoriesOnly : MonoBehaviour
                 _discoverTimer = 0f;
                 int before = _droneTransforms.Count;
                 CollectDrones();
-                if (_droneTransforms.Count != before)
-                    Debug.Log($"[SwarmTrajectoriesOnly] Lazy discovered {_droneTransforms.Count} drones.");
-                if (_droneTransforms.Count > 0) _samplingEnabled = true;
+                if (_droneTransforms.Count > before) _samplingEnabled = true;
             }
         }
 
-        // Re-scan children periodically (handles drones spawned after start)
         if (swarmRoot && rescanChildrenEverySec > 0f)
         {
             _childrenRescanTimer += Time.deltaTime;
@@ -149,53 +184,81 @@ public class SwarmTrajectoriesOnly : MonoBehaviour
                 if (_lastChildCount != swarmRoot.childCount)
                 {
                     _lastChildCount = swarmRoot.childCount;
-                    int before = _droneTransforms.Count;
                     CollectDrones();
-                    if (_droneTransforms.Count != before)
-                        Debug.Log($"[SwarmTrajectoriesOnly] Swarm child change → drones: {before} → {_droneTransforms.Count}");
                 }
             }
         }
 
         if (!_samplingEnabled || _droneTransforms.Count == 0) return;
 
-        // Fixed-rate sampling
-        if (sampleHz <= 0f) SampleOnce();
+        if (sampleHz <= 0f)
+        {
+            // sample every Update; recording throttle via ShouldRecordThisSample(dt)
+            bool recordNow = ShouldRecordThisSample(Time.deltaTime);
+            SampleOnce(recordNow);
+        }
         else
         {
-            _accum += Time.deltaTime;
             float period = 1f / sampleHz;
-            while (_accum >= period) { SampleOnce(); _accum -= period; }
+            _accum += Time.deltaTime;
+            while (_accum >= period)
+            {
+                bool recordNow = ShouldRecordThisSample(period);
+                SampleOnce(recordNow);
+                _accum -= period;
+            }
         }
 
-        // Autosave (optional)
         if (autosaveEverySec > 0f)
         {
             _autosaveTimer += Time.deltaTime;
             if (_autosaveTimer >= autosaveEverySec)
             {
                 _autosaveTimer = 0f;
-                TrySave();
+                TrySave(SaveReason.Auto);
             }
         }
     }
 
-    void OnApplicationQuit()
-    {
-        Debug.Log("[SwarmTrajectoriesOnly] OnApplicationQuit -> Save()");
-        TrySave();
-    }
+    private void OnApplicationQuit() => TrySave(SaveReason.Final);
 
-    void OnDisable()
+    private void OnDisable()
     {
-        // Avoid saving during early setup/selector scene switch
         var scene = SceneManager.GetActiveScene().name;
         if (scene == setupSceneName) return;
-        Debug.Log("[SwarmTrajectoriesOnly] OnDisable -> Save()");
-        TrySave();
+        TrySave(SaveReason.Final);
     }
 
-    // ---------------- Core ----------------
+    // -------------------- Recording schedule --------------------
+    private bool ShouldRecordThisSample(float dt)
+    {
+        // Priority 1: rate-based throttle
+        if (recordHz > 0f)
+        {
+            float recPeriod = 1f / recordHz;
+            _recordAccum += dt;
+            if (_recordAccum + 1e-6f >= recPeriod)
+            {
+                _recordAccum -= recPeriod;
+                _sampleIndex++; // still increment sample index for consistency
+                return true;
+            }
+            _sampleIndex++;
+            return false;
+        }
+
+        // Priority 2: decimation-based throttle
+        if (recordEveryNthSample <= 1)
+        {
+            _sampleIndex++;
+            return true; // record every sample
+        }
+
+        _sampleIndex++;
+        return (_sampleIndex % recordEveryNthSample) == 0;
+    }
+
+    // -------------------- Discovery --------------------
     private void TryFindSwarmRootNow()
     {
         if (swarmRoot) return;
@@ -203,35 +266,24 @@ public class SwarmTrajectoriesOnly : MonoBehaviour
         if (!string.IsNullOrEmpty(swarmRootTag))
         {
             var byTag = GameObject.FindWithTag(swarmRootTag);
-            if (byTag)
-            {
-                swarmRoot = byTag.transform;
-                _lastChildCount = swarmRoot.childCount;
-                Debug.Log("[SwarmTrajectoriesOnly] Found Swarm by tag: " + swarmRootTag);
-                return;
-            }
+            if (byTag) { swarmRoot = byTag.transform; _lastChildCount = swarmRoot.childCount; return; }
         }
         if (!string.IsNullOrEmpty(swarmRootName))
         {
             var byName = GameObject.Find(swarmRootName);
-            if (byName)
-            {
-                swarmRoot = byName.transform;
-                _lastChildCount = swarmRoot.childCount;
-                Debug.Log("[SwarmTrajectoriesOnly] Found Swarm by name: " + swarmRootName);
-            }
+            if (byName) { swarmRoot = byName.transform; _lastChildCount = swarmRoot.childCount; }
         }
     }
 
     private void CollectDrones()
     {
         _droneTransforms.Clear();
-        if (!swarmRoot) { Debug.Log("[SwarmTrajectoriesOnly] CollectDrones skipped (no swarmRoot yet)."); return; }
+        if (!swarmRoot) return;
 
         var type = GetTypeByName(droneComponentTypeName);
         if (type != null)
         {
-            var comps = swarmRoot.GetComponentsInChildren(type, true); // include inactive
+            var comps = swarmRoot.GetComponentsInChildren(type, true);
             foreach (var c in comps)
             {
                 var tr = ((Component)c).transform;
@@ -248,8 +300,6 @@ public class SwarmTrajectoriesOnly : MonoBehaviour
                 EnsureTrajFor(tr);
             }
         }
-
-        Debug.Log($"[SwarmTrajectoriesOnly] CollectDrones -> {_droneTransforms.Count} transforms.");
     }
 
     private void EnsureTrajFor(Transform tr)
@@ -284,36 +334,162 @@ public class SwarmTrajectoriesOnly : MonoBehaviour
                 if (p != null && p.PropertyType == typeof(int)) return (int)p.GetValue(comp);
             }
         }
-        return t.GetInstanceID(); // fallback
+        return t.GetInstanceID();
     }
 
-    private void SampleOnce()
+    // -------------------- Sampling --------------------
+    private void SampleOnce(bool writeThisSample)
     {
+        int n = _droneTransforms.Count;
+        if (n == 0) return;
+
         float t = Time.time;
-        for (int i = 0; i < _droneTransforms.Count; i++)
+
+        // If not writing, we can early-exit to avoid extra work.
+        if (!writeThisSample) return;
+
+        var positions = new Vector3[n];
+        var ids       = new int[n];
+        for (int i = 0; i < n; i++)
         {
             var tr = _droneTransforms[i];
             if (!tr) continue;
+            positions[i] = tr.position;
+            ids[i] = GetStableId(tr);
+            if (!_trajById.TryGetValue(ids[i], out _))
+                _trajById[ids[i]] = new DroneTraj { id = ids[i], name = tr.name };
+        }
 
-            int id = GetStableId(tr);
-            var traj = _trajById[id];
-            Vector3 p = tr.position;
-            traj.frames.Add(new TrajFrame { t = t, x = p.x, y = p.y, z = p.z });
+        // Compute main group flags (for frames we actually write)
+        var inMain = new bool[n];
+        ComputeMainGroupFlags(positions, inMain);
+
+        // Record frames
+        for (int i = 0; i < n; i++)
+        {
+            if (!_trajById.TryGetValue(ids[i], out var traj)) continue;
+            Vector3 p = positions[i];
+            traj.frames.Add(new TrajFrame
+            {
+                t = t,
+                x = p.x, y = p.y, z = p.z,
+                g = (byte)(inMain[i] ? 1 : 0)
+            });
         }
     }
 
-    private void TrySave()
+    // -------------------- Main-group logic --------------------
+    private void ComputeMainGroupFlags(Vector3[] positions, bool[] inMain)
     {
-        try { Save(); }
-        catch (Exception ex) { Debug.LogError("[SwarmTrajectoriesOnly] Save failed: " + ex); }
+        Array.Clear(inMain, 0, inMain.Length);
+        int n = positions.Length;
+        if (n == 0) return;
+
+        if (useNetworkForMainGroup)
+        {
+            var net = swarmModel.network;
+            if (net != null && net.largestComponent != null && net.largestComponent.Count > 0)
+            {
+                var mainSet = new HashSet<DroneFake>(net.largestComponent);
+                for (int i = 0; i < n; i++)
+                {
+                    var tr = _droneTransforms[i];
+                    if (!tr) continue;
+                    var dc = tr.GetComponent<DroneController>();
+                    var df = (dc != null) ? dc.droneFake : null;
+                    bool isInMain =
+                        (df != null && mainSet.Contains(df)) ||
+                        (df != null && net.IsInMainNetwork(df));
+                    inMain[i] = isInMain;
+                }
+
+                if (minMainGroupSize > 1)
+                {
+                    int count = 0; for (int i = 0; i < n; i++) if (inMain[i]) count++;
+                    if (count < minMainGroupSize) Array.Clear(inMain, 0, n);
+                }
+                return;
+            }
+
+            if (includeAllUntilNetworkReady)
+            {
+                for (int i = 0; i < n; i++) inMain[i] = true;
+                return;
+            }
+        }
+
+        ProximityFallback(positions, inMain);
+    }
+
+    private void ProximityFallback(Vector3[] positions, bool[] inMain)
+    {
+        int n = positions.Length;
+        if (n == 0) return;
+
+        int[] parent = new int[n];
+        int[] size = new int[n];
+        for (int i = 0; i < n; i++) { parent[i] = i; size[i] = 1; }
+
+        int Find(int a) { while (parent[a] != a) { parent[a] = parent[parent[a]]; a = parent[a]; } return a; }
+        void Union(int a, int b)
+        {
+            a = Find(a); b = Find(b);
+            if (a == b) return;
+            if (size[a] < size[b]) { var t = a; a = b; b = t; }
+            parent[b] = a; size[a] += size[b];
+        }
+
+        float r2 = linkDistance * linkDistance;
+        for (int i = 0; i < n; i++)
+        for (int j = i + 1; j < n; j++)
+        {
+            float dx = positions[i].x - positions[j].x;
+            float dz = positions[i].z - positions[j].z;
+            float d2 = useXZDistance
+                ? (dx * dx + dz * dz)
+                : (dx * dx + dz * dz + (positions[i].y - positions[j].y) * (positions[i].y - positions[j].y));
+            if (d2 <= r2) Union(i, j);
+        }
+
+        var counts = new Dictionary<int, int>();
+        int bestRoot = -1, best = 0;
+        for (int i = 0; i < n; i++)
+        {
+            int r = Find(i);
+            counts[r] = counts.TryGetValue(r, out var cur) ? (cur + 1) : 1;
+            if (counts[r] > best) { best = counts[r]; bestRoot = r; }
+        }
+
+        if (best < Mathf.Max(1, minMainGroupSize))
+        {
+            Array.Clear(inMain, 0, n);
+            return;
+        }
+
+        for (int i = 0; i < n; i++)
+            inMain[i] = (Find(i) == bestRoot);
+    }
+
+    // -------------------- Saving --------------------
+    private void TrySave(SaveReason reason)
+    {
+        if (_finalized && reason != SaveReason.Auto) return;
+        if (Time.realtimeSinceStartup - _lastSaveRealtime < SaveDebounceSec) return;
+        _lastSaveRealtime = Time.realtimeSinceStartup;
+
+        Save();
+
+        if (reason == SaveReason.Final) _finalized = true;
+#if UNITY_EDITOR
+        Debug.Log($"[SwarmTrajectoryRecorder] Save() wrote file. finalized={_finalized} time={Time.time:F2}");
+#endif
     }
 
     public void Save()
     {
-        // Ensure at least one sample so the file isn’t empty
         bool any = false;
         foreach (var kv in _trajById) { if (kv.Value.frames.Count > 0) { any = true; break; } }
-        if (!any && _droneTransforms.Count > 0) SampleOnce();
+        if (!any && _droneTransforms.Count > 0) SampleOnce(true);
 
         var log = new TrajectoryLog
         {
@@ -321,44 +497,46 @@ public class SwarmTrajectoriesOnly : MonoBehaviour
             pid = ResolvePid(),
             haptics = ResolveHaptics(),
             order = ResolveOrder(),
-            sampleHz = sampleHz <= 0 ? -1f : sampleHz
+            sampleHz = sampleHz <= 0 ? -1f : sampleHz,
+            trajectories = new List<DroneTraj>(_trajById.Values)
         };
-        foreach (var kv in _trajById) log.trajectories.Add(kv.Value);
 
-        // -------- Choose output root --------
         string root;
 #if UNITY_EDITOR
-        root = Path.Combine(Application.dataPath, "Data", log.pid, outSubfolder); // Editor: inside Assets/
+        root = Path.Combine(Application.dataPath, "Data", log.pid, outSubfolder);
 #else
-        root = Path.Combine(Application.persistentDataPath, "Data", log.pid, outSubfolder); // Build: writable
+        root = Path.Combine(Application.persistentDataPath, "Data", log.pid, outSubfolder);
 #endif
         Directory.CreateDirectory(root);
 
+        string activeScene = SceneManager.GetActiveScene().name;
+        string label = !string.IsNullOrEmpty(sceneLabelOverride) ? sceneLabelOverride :
+                       (ResolveSelectedSceneLabel() ?? ((activeScene == setupSceneName) ? "UnknownScene" : activeScene));
+        string safeScene = MakeFileSafe(label);
+
         string stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-        string fileName = $"{MakeSafe(log.scene)}_{log.haptics}_{log.order}_{stamp}_traj.json";
+        string fileName = $"{safeScene}_{log.haptics}_{log.order}_{stamp}_traj.json";
         string full = Path.Combine(root, fileName);
 
-        File.WriteAllText(full, JsonUtility.ToJson(log, false));
-        Debug.Log($"[SwarmTrajectoriesOnly] Saved {log.trajectories.Count} drones to:\n{full}");
+        File.WriteAllText(full, JsonUtility.ToJson(log, true));
+        Debug.Log($"[SwarmTrajectoryRecorder] Saved {log.trajectories.Count} drones to:\n{full}");
 
 #if UNITY_EDITOR
-        // Make it appear in Project view if we wrote under Assets/
         if (full.StartsWith(Application.dataPath)) AssetDatabase.Refresh();
-        // Optional: reveal the file automatically
-        // EditorUtility.RevealInFinder(full);
 #endif
     }
 
-    private static string MakeSafe(string s)
+    private static string MakeFileSafe(string s)
     {
-        foreach (char c in Path.GetInvalidFileNameChars()) s = s.Replace(c, '_');
+        if (string.IsNullOrEmpty(s)) return "Scene";
+        s = Regex.Replace(s, @"\s+", "_");
+        foreach (char c in Path.GetInvalidFileNameChars()) s = s.Replace(c.ToString(), "");
         return s;
     }
 
     private string ResolvePid()
     {
         if (!string.IsNullOrEmpty(pidOverride)) return pidOverride;
-
         var t = GetTypeByName("SceneSelectorScript");
         if (t != null)
         {
@@ -394,5 +572,32 @@ public class SwarmTrajectoriesOnly : MonoBehaviour
                 return ((bool)f.GetValue(null)) ? "O" : "NO";
         }
         return "NO";
+    }
+
+    private string ResolveSelectedSceneLabel()
+    {
+        var t = GetTypeByName("SceneSelectorScript");
+        if (t == null) return null;
+        string[] fieldNames = { "selectedSceneName", "sceneToLoad", "targetScene", "detailScene", "SelectedLevel", "SelectedScene" };
+        foreach (var fn in fieldNames)
+        {
+            var f = t.GetField(fn);
+            if (f != null && f.FieldType == typeof(string))
+            {
+                var v = f.GetValue(null) as string;
+                if (!string.IsNullOrEmpty(v)) return v;
+            }
+        }
+        string[] propNames = { "SelectedSceneName", "SceneToLoad", "TargetScene", "DetailScene", "SelectedLevel", "SelectedScene" };
+        foreach (var pn in propNames)
+        {
+            var p = t.GetProperty(pn);
+            if (p != null && p.PropertyType == typeof(string))
+            {
+                var v = p.GetValue(null) as string;
+                if (!string.IsNullOrEmpty(v)) return v;
+            }
+        }
+        return null;
     }
 }
