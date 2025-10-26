@@ -13,7 +13,7 @@ REF_STEPS = [
 OUT_TRAJ_PNG = "outputs/one_script_trajectories.png"
 OUT_ERR_PNG  = "outputs/one_script_centroid_error.png"
 
-candidates = sorted(glob.glob("/Users/chenyang/ToGoogleDrive/Gitchen/UnityMIT/SoundMapping/SoundMappingUnity/Assets/Data/default/Trajectories_1022/Scene_Selector_H_NO_20251025_164237_traj.json"), key=os.path.getmtime, reverse=True)
+candidates = sorted(glob.glob("/Users/chenyang/ToGoogleDrive/Gitchen/UnityMIT/SoundMapping/SoundMappingUnity/Assets/Data/default/Trajectories_1022/Scene_Selector_H_NO_20251026_132101_traj.json"), key=os.path.getmtime, reverse=True)
 if not candidates:
     raise FileNotFoundError("No JSON files found in /mnt/data. Please upload the recorded JSON.")
 INPUT_JSON = Path(candidates[0])
@@ -134,6 +134,120 @@ else:
 centroid = np.column_stack([centroid_x, centroid_z])
 centroid_err = np.array([dist_point_to_polyline(p, ref_poly) for p in centroid], dtype=float)
 
+# ========= Average inter-agent distance (main group only if g provided) =========
+
+def avg_pairwise_distance(points_xy):
+    """Mean of all pairwise Euclidean distances among points (N,2). Returns np.nan if <2."""
+    m = points_xy.shape[0]
+    if m < 2:
+        return np.nan
+    # pairwise distances using broadcasting; take upper triangle
+    diffs = points_xy[:, None, :] - points_xy[None, :, :]      # (m,m,2)
+    dists = np.sqrt(np.sum(diffs * diffs, axis=-1))             # (m,m)
+    iu = np.triu_indices(m, k=1)
+    return float(dists[iu].mean())
+
+if use_time:
+    # Rebuild bins but keep all positions so we can compute pairwise distances
+    bins_all = {}  # time -> list of (x,z) after g-filter
+    for name, d in drone_tracks.items():
+        t = d["t"]; xarr = d["x"]; zarr = d["z"]; g = d.get("g", None)
+        if t is None:
+            continue
+        for idx, (ti, xi, zi) in enumerate(zip(t, xarr, zarr)):
+            if g is not None and not (g[idx] == 1):
+                continue
+            key = round(float(ti), 3)
+            bins_all.setdefault(key, []).append((xi, zi))
+
+    # If g-filter removed everything at some times, fall back to include all drones at those times
+    if not bins_all:
+        for name, d in drone_tracks.items():
+            t = d["t"]; xarr = d["x"]; zarr = d["z"]
+            if t is None: continue
+            for ti, xi, zi in zip(t, xarr, zarr):
+                key = round(float(ti), 3)
+                bins_all.setdefault(key, []).append((xi, zi))
+
+    times_inter = np.array(sorted(bins_all.keys()), dtype=float)
+    avg_interagent = []
+    counts_used = []
+    for key in times_inter:
+        pts = np.array(bins_all[key], dtype=float)
+        avg_interagent.append(avg_pairwise_distance(pts))
+        counts_used.append(len(pts))
+    avg_interagent = np.array(avg_interagent, dtype=float)
+
+else:
+    # Frame-index mode: compute per frame using available drones; apply g-filter if present
+    min_len = min(len(drone_tracks[name]["x"]) for name in drone_tracks)
+    times_inter = np.arange(min_len, dtype=float)
+    avg_interagent = []
+    counts_used = []
+    for f in range(min_len):
+        pts = []
+        for name, d in drone_tracks.items():
+            g = d.get("g", None)
+            if g is not None and not (g[f] == 1):
+                continue
+            pts.append((d["x"][f], d["z"][f]))
+        if len(pts) == 0:
+            # fallback: include all drones at this frame
+            pts = [(d["x"][f], d["z"][f]) for d in drone_tracks.values()]
+        pts = np.array(pts, dtype=float)
+        avg_interagent.append(avg_pairwise_distance(pts))
+        counts_used.append(len(pts))
+    avg_interagent = np.array(avg_interagent, dtype=float)
+
+# Overall mean across timestamps (ignoring NaNs when only 0/1 drone in group)
+overall_avg_interagent = float(np.nanmean(avg_interagent)) if avg_interagent.size else float("nan")
+print(f"Average inter-agent distance over time: {overall_avg_interagent:.3f} m")
+
+# ========= Average inter-agent distance for the WHOLE SWARM (ignore g) =========
+
+def avg_pairwise_distance(points_xy):
+    m = points_xy.shape[0]
+    if m < 2:
+        return np.nan
+    diffs = points_xy[:, None, :] - points_xy[None, :, :]   # (m,m,2)
+    dists = np.sqrt(np.sum(diffs * diffs, axis=-1))         # (m,m)
+    iu = np.triu_indices(m, k=1)
+    return float(dists[iu].mean())
+
+if use_time:
+    # Build bins without any g filtering
+    bins_swarm = {}  # time -> list of (x,z) for all drones
+    for name, d in drone_tracks.items():
+        t = d["t"]; xarr = d["x"]; zarr = d["z"]
+        if t is None: continue
+        for ti, xi, zi in zip(t, xarr, zarr):
+            key = round(float(ti), 3)
+            bins_swarm.setdefault(key, []).append((xi, zi))
+
+    times_swarm = np.array(sorted(bins_swarm.keys()), dtype=float)
+    avg_interagent_swarm = []
+    counts_swarm = []
+    for key in times_swarm:
+        pts = np.array(bins_swarm[key], dtype=float)
+        avg_interagent_swarm.append(avg_pairwise_distance(pts))
+        counts_swarm.append(len(pts))
+    avg_interagent_swarm = np.array(avg_interagent_swarm, dtype=float)
+
+else:
+    # Frame-index mode: whole swarm each frame
+    min_len = min(len(d["x"]) for d in drone_tracks.values())
+    times_swarm = np.arange(min_len, dtype=float)
+    avg_interagent_swarm = []
+    counts_swarm = []
+    for f in range(min_len):
+        pts = np.array([(d["x"][f], d["z"][f]) for d in drone_tracks.values()], dtype=float)
+        avg_interagent_swarm.append(avg_pairwise_distance(pts))
+        counts_swarm.append(len(pts))
+    avg_interagent_swarm = np.array(avg_interagent_swarm, dtype=float)
+
+overall_avg_interagent_swarm = float(np.nanmean(avg_interagent_swarm)) if avg_interagent_swarm.size else float("nan")
+print(f"Average inter-agent distance (WHOLE SWARM) over time: {overall_avg_interagent_swarm:.3f} m")
+
 # --------- METRICS ---------
 # total time
 if len(centroid_err) > 0:
@@ -194,7 +308,7 @@ plt.gca().set_aspect("equal", adjustable="box")
 plt.xlabel("X (m)"); plt.ylabel("Z (m)")
 plt.title(f"Trajectories & Centroid vs Reference — {scene}\nFile: {INPUT_JSON.name}")
 plt.grid(True, alpha=0.3); plt.legend(loc="best")
-plt.tight_layout(); plt.savefig(OUT_TRAJ_PNG, dpi=150); plt.show()
+plt.tight_layout(); plt.savefig(OUT_TRAJ_PNG, dpi=150); #plt.show()
 
 plt.figure(figsize=(9, 5))
 plt.plot(times, centroid_err)
@@ -202,8 +316,36 @@ plt.xlabel("Time (s)" if use_time else "Frame index")
 plt.ylabel("Centroid cross-track error (m)")
 plt.title("Centroid cross-track error vs time (main group only)")
 plt.grid(True, alpha=0.3)
-plt.tight_layout(); plt.savefig(OUT_ERR_PNG, dpi=150); plt.show()
+plt.tight_layout(); plt.savefig(OUT_ERR_PNG, dpi=150); #plt.show()
 
+# Save + plot
+# OUT_INTERDIST_PNG = "outputs/average_interagent_distance.png"
+# plt.figure(figsize=(9, 5))
+# plt.plot(times_inter, avg_interagent)
+# plt.xlabel("Time (s)" if use_time else "Frame index")
+# plt.ylabel("Average inter-agent distance (m)")
+# plt.title("Average inter-agent distance vs time (main group when available)")
+# plt.grid(True, alpha=0.3)
+# plt.tight_layout()
+# plt.savefig(OUT_INTERDIST_PNG, dpi=150)
+# plt.show()
+
+# --------- PLOT: overlay main-group vs whole swarm ---------
+OUT_INTERDIST_BOTH_PNG = "outputs/average_interagent_distance_both.png"
+plt.figure(figsize=(9, 5))
+# main group you already computed: times_inter, avg_interagent
+plt.plot(times_inter, avg_interagent, label="Main group", linewidth=2)
+plt.plot(times_swarm, avg_interagent_swarm, label="Whole swarm", linestyle="--")
+plt.xlabel("Time (s)" if use_time else "Frame index")
+plt.ylabel("Average inter-agent distance (m)")
+plt.title("Average inter-agent distance vs time")
+plt.grid(True, alpha=0.3)
+plt.legend(loc="best")
+plt.tight_layout()
+plt.savefig(OUT_INTERDIST_BOTH_PNG, dpi=150)
+plt.show()
+
+print("Saved:", OUT_INTERDIST_PNG)
 OUT_TRAJ_PNG, OUT_ERR_PNG, str(INPUT_JSON)
 
 
