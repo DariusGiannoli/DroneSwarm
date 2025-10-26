@@ -199,8 +199,9 @@ public class NetworkCreator
     {
         float distance = Vector3.Distance(a.position, b.position);
         if (distance > DroneFake.neighborRadius) return false;
-        bool visible = ClosestPointCalculator.IsLineIntersecting(a.position, b.position);
-        return !visible;
+        // bool visible = ClosestPointCalculator.IsLineIntersecting(a.position, b.position);
+        // return !visible;
+        return true; // ← add this line so the function always returns
     }
 
     public List<DroneFake> GetNeighbors(DroneFake drone)
