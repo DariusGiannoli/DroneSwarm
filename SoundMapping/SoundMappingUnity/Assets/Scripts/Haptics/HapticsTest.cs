@@ -557,8 +557,9 @@ public class HapticsTest : MonoBehaviour
 
         // 带迟滞的开关
         // static bool disconnActive; // 放到类字段更好（避免每帧重新置 false）
-        if (!disconnActive && _discScoreSmooth >= DISC_ON)  disconnActive = true;
-        if ( disconnActive && _discScoreSmooth <= DISC_OFF) disconnActive = false;
+        if (!disconnActive && _discScoreSmooth >= DISC_ON && swarmModel.avgDist < 5f)  disconnActive = true;
+        if (disconnActive && ( swarmModel.avgDist >= 5f || _discScoreSmooth <= DISC_OFF )) disconnActive = false;
+        
 
         // 2) Size 是否“明显变化”
         bool sizeActive = !muteTargetRow;
@@ -592,8 +593,8 @@ public class HapticsTest : MonoBehaviour
         {
             // ③ Embodied blink（兜底）：只点化身无人机所在格子
             const float blinkRate = 3f; // Hz
-            bool  blinkOn = (Mathf.FloorToInt(Time.time * blinkRate) & 1) == 0;
-            int   dutyVal = blinkOn ? 7 : 0;
+            bool blinkOn = (Mathf.FloorToInt(Time.time * blinkRate) & 1) == 0;
+            int dutyVal = blinkOn ? 7 : 0;
 
             Vector3 localE = _swarmFrame.InverseTransformPoint(embodiedDrone.position);
             int colE = ColFromX(localE.x, halfW, actuator_W);
