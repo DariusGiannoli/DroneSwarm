@@ -72,6 +72,7 @@ public class swarmModel : MonoBehaviour
 
     public static Vector3 swarmVelocityAvg = Vector3.zero;
     public static float swarmConnectionScore = 0f;
+    public static float avgDist;
     public static float swarmAskingSpreadness = 0f;
 
     public static int numberOfDroneDiscionnected => SwarmDisconnection.dronesID.Count;
@@ -800,7 +801,9 @@ public class swarmModel : MonoBehaviour
         NetworkCreator networkToCompute = new NetworkCreator(connectedDrone);
         networkToCompute.refreshNetwork();
 
-        float energyDev = networkToCompute.ComputeNormalizedDeviationEnergy();
+        // float avgDist;
+
+        float energyDev = networkToCompute.ComputeNormalizedDeviationEnergy(out avgDist);
         swarmConnectionScore = energyDev;
     }
 
@@ -870,7 +873,8 @@ public class swarmModel : MonoBehaviour
             networkToCompute.refreshNetwork();
 
             float velMissmatch = networkToCompute.ComputeNormalizedVelocityMismatch();
-            float energyDev = networkToCompute.ComputeNormalizedDeviationEnergy();
+            float avgDist;
+            float energyDev = networkToCompute.ComputeNormalizedDeviationEnergy(out avgDist);
             float relativeConnectivity = networkToCompute.ComputeRelativeConnectivity();
             float cohesionRadius = networkToCompute.ComputeCohesionRadius();
 
