@@ -296,7 +296,7 @@ public class HapticsTest : MonoBehaviour
     float[] rawByAddr    = new float[256]; // 本帧密度（临时）
 
     // —— 可调参数 ——
-    const float GAIN_PER_DRONE = 3f;   // 一架无人机贡献的总强度（等价于你原来的 +2）
+    const float GAIN_PER_DRONE = 10f;   // 一架无人机贡献的总强度（等价于你原来的 +2）
     const float TAU_SMOOTH     = 0.20f;// 时间平滑常数(秒)，越大越稳
 
     // —— 状态缓存 ——
@@ -434,6 +434,7 @@ public class HapticsTest : MonoBehaviour
         // --- measure normalized half-width and gate stability ---
         float dt = Time.deltaTime; // we’ll reuse dt later as well
         float halfW01 = Mathf.Clamp01(halfW / refWorldHalfW);     // normalize width to [0,1]
+        Debug.Log($"halfW01: {halfW01:F3}");
         float sizeDiff01 = (_lastHalfW01 < 0f) ? 1f : Mathf.Abs(halfW01 - _lastHalfW01);
 
         // hysteresis on size: must stay “small change” for a while
@@ -490,20 +491,20 @@ public class HapticsTest : MonoBehaviour
             // float v = Mathf.Clamp01((local.z + halfH) / (4.5f)) * ROWS_MINUS1;
 
             // float t = local.x / 4.5f * 2f;      // → [0..1]
-            float u = Mathf.Clamp(local.x / 4.5f * 2f + center_W, 0, Mathf.RoundToInt(initial_actuator_W));
-            float v = Mathf.Clamp(-local.z / 4.5f * 2f + center_H, 0, Mathf.RoundToInt(initial_actuator_H));
+            float u = Mathf.Clamp(local.x / 4.5f * 1.5f + center_W, 0, Mathf.RoundToInt(initial_actuator_W));
+            float v = Mathf.Clamp(-local.z / 4.5f * 1.5f + center_H, 0, Mathf.RoundToInt(initial_actuator_H));
 
-
+            // find the nearest grid cell locations
             int c0 = Mathf.FloorToInt(u);
             int r0 = Mathf.FloorToInt(v);
             int c1 = Mathf.Min(c0 + 1, COLS - 1);
             int r1 = Mathf.Min(r0 + 1, ROWS - 1);
 
-            // 权重
+            // weights
             float wc1 = u - c0, wc0 = 1f - wc1;
             float wr1 = v - r0, wr0 = 1f - wr1;
 
-            // 四邻域权重
+            // weights for neighboring cells
             float w00 = wc0 * wr0;
             float w10 = wc1 * wr0;
             float w01 = wc0 * wr1;
@@ -513,7 +514,7 @@ public class HapticsTest : MonoBehaviour
             void Add(int rr, int cc, float w)
             {
                 int addr = matrix[rr, cc];
-                targetDuty[addr] += GAIN_PER_DRONE * w;
+                targetDuty[addr] += GAIN_PER_DRONE * (1-halfW01) * w;
             }
 
             Add(r0, c0, w00);
@@ -521,12 +522,14 @@ public class HapticsTest : MonoBehaviour
             Add(r1, c0, w01);
             Add(r1, c1, w11);
         }
+        
 
-        // float dt    = Time.deltaTime;
+        // float dt = Time.deltaTime;
         float alpha = 1f - Mathf.Exp(-dt / TAU_SMOOTH);
 
         // === 先计算列合并需要的中间量（保留你现在的 colSum 计算） ===
-        int[] colSum = new int[COLS];
+        // int[] colSum = new int[COLS];
+        float[] colSum = new float[COLS];
         for (int row = 0; row < ROWS; row++)
         {
             for (int col = 0; col < COLS; col++)
@@ -535,7 +538,8 @@ public class HapticsTest : MonoBehaviour
 
                 // cell 平滑，累加到列
                 smoothDuty[addr] = Mathf.Lerp(smoothDuty[addr], targetDuty[addr], alpha);
-                int cellDuty = Mathf.Min(DUTY_MAX, Mathf.RoundToInt(smoothDuty[addr]));
+                // int cellDuty = Mathf.Min(DUTY_MAX, Mathf.RoundToInt(smoothDuty[addr]));
+                float cellDuty = smoothDuty[addr];  //Mathf.Min(DUTY_MAX, smoothDuty[addr]);
                 colSum[col] += cellDuty;
 
                 // 清空所有单元；稍后只由“唯一被选中的模式”写入
@@ -579,10 +583,11 @@ public class HapticsTest : MonoBehaviour
         }
         else if (sizeActive)
         {
-            // ② Size rendering：按列合并 → 写到 TARGET_ROW（不再做 mute）
+            // ② Size rendering: divide by 4 rows → write into TARGET_ROW
             for (int col = 0; col < COLS; col++)
             {
                 int collapsed = Mathf.Min(DUTY_MAX, Mathf.RoundToInt(colSum[col] * Compress));
+                Debug.Log($"[SizeBar] col={col} value={colSum[col] * Compress:F3}");
                 int addr = matrix[TARGET_ROW, col];
                 duty[addr] = collapsed;
                 dutyByTile[TARGET_ROW * COLS + col] = collapsed;
