@@ -1410,17 +1410,17 @@ public class Actuators
 
     public virtual void sendValue()
     {
-    //     if( lastSendFrequency != frequency || lastSendDuty != duty) {
-    //         // --- MODIFIED LINE ---
-    //         // Add "this.SlaveId" as the first parameter to the SendCommand call.
-    //         VibraForge.SendCommand(this.SlaveId, Adresse, (int)duty == 0 ? 0:1, (int)duty, (int)frequency);
+        if( lastSendFrequency != frequency || lastSendDuty != duty) {
+            // --- MODIFIED LINE ---
+            // Add "this.SlaveId" as the first parameter to the SendCommand call.
+            VibraForge.SendCommand(this.SlaveId, Adresse, (int)duty == 0 ? 0:1, (int)duty, (int)frequency);
             
-    //         lastSendDuty = duty;
-    //         lastSendFrequency = frequency;
-    // //      Debug.Log("Send Command: " + Adresse + " Duty: " + duty + " Frequency: " + frequency);
-    //     }
+            lastSendDuty = duty;
+            lastSendFrequency = frequency;
+    //      Debug.Log("Send Command: " + Adresse + " Duty: " + duty + " Frequency: " + frequency);
+        }
 
-        VibraForge.SendCommand(this.SlaveId, Adresse, (int)duty == 0 ? 0:1, (int)duty, (int)frequency);
+        // VibraForge.SendCommand(this.SlaveId, Adresse, (int)duty == 0 ? 0:1, (int)duty, (int)frequency);
 
     }
 
