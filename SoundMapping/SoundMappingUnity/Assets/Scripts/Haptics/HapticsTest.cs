@@ -181,9 +181,8 @@ public class HapticsTest : MonoBehaviour
     }
 
     /*---------------------------------------------------------------*/
-    /* Editor-only visual of swarm centroid                          */
+    /* visualization of swarm centroid                          */
     /*---------------------------------------------------------------*/
-#if UNITY_EDITOR            // keeps the code out of runtime builds
     void OnDrawGizmos()
     {
         var drones = FindObjectsOfType<DroneController>()
@@ -198,10 +197,7 @@ public class HapticsTest : MonoBehaviour
         // Gizmos.DrawSphere(c, 0.2f);        // 5 cm sphere
         // Gizmos.DrawLine(c, c + Vector3.up); // little “stem” so it’s easy to spot
     }
-#endif
 
-    
-    #if UNITY_EDITOR
     void OnDrawGizmosSelected()
     {
         // var drones = FindObjectsOfType<DroneController>()
@@ -244,7 +240,6 @@ public class HapticsTest : MonoBehaviour
         Gizmos.DrawLine(tip, headL);
         Gizmos.DrawLine(tip, headR);
     }
-    #endif
     
     // ------------------------------------------------------------
     //  Local "Swarm Frame" (created once, reused every frame)
@@ -565,13 +560,11 @@ public class HapticsTest : MonoBehaviour
         if (disconnActive && ( swarmModel.avgDist >= 5f || _discScoreSmooth <= DISC_OFF )) disconnActive = false;
         
 
-        // 2) Size 是否“明显变化”
+        // 2) if size changed obviously
         bool sizeActive = !muteTargetRow;
         // 注意：这里不再“静音某行”，而是：只有在 sizeActive==true 时才渲染 size bar
 
-        // 3) Embodied blink 不需要额外条件；作为兜底
-
-        // === 根据优先级只渲染一个模式 ===
+        // render according to priority
         const int TARGET_ROW = 0;
         float Compress = 1f / ROWS; // 列合并用平均，避免饱和
 
@@ -596,8 +589,8 @@ public class HapticsTest : MonoBehaviour
         }
         else
         {
-            // ③ Embodied blink（兜底）：只点化身无人机所在格子
-            const float blinkRate = 3f; // Hz
+            // ③ Embodied blink
+            const float blinkRate = 3f; // Hz, blink frequency
             bool blinkOn = (Mathf.FloorToInt(Time.time * blinkRate) & 1) == 0;
             int dutyVal = blinkOn ? 7 : 0;
 
@@ -1442,31 +1435,31 @@ public class Actuators
 }
 
 
-public class GamepadMonitor : MonoBehaviour
-{
-    private void OnEnable()
-    {
-        InputSystem.onDeviceChange += OnDeviceChange;
-    }
+// public class GamepadMonitor : MonoBehaviour
+// {
+//     private void OnEnable()
+//     {
+//         InputSystem.onDeviceChange += OnDeviceChange;
+//     }
 
-    private void OnDisable()
-    {
-        InputSystem.onDeviceChange -= OnDeviceChange;
-    }
+//     private void OnDisable()
+//     {
+//         InputSystem.onDeviceChange -= OnDeviceChange;
+//     }
 
-    private void OnDeviceChange(InputDevice device, InputDeviceChange change)
-    {
-        if (device is Gamepad)
-        {
-            switch (change)
-            {
-                case InputDeviceChange.Added:
-                    Debug.Log("Gamepad Connected: " + device.name);
-                    break;
-                case InputDeviceChange.Removed:
-                    Debug.Log("Gamepad Disconnected!");
-                    break;
-            }
-        }
-    }
-}
+//     private void OnDeviceChange(InputDevice device, InputDeviceChange change)
+//     {
+//         if (device is Gamepad)
+//         {
+//             switch (change)
+//             {
+//                 case InputDeviceChange.Added:
+//                     Debug.Log("Gamepad Connected: " + device.name);
+//                     break;
+//                 case InputDeviceChange.Removed:
+//                     Debug.Log("Gamepad Disconnected!");
+//                     break;
+//             }
+//         }
+//     }
+// }
