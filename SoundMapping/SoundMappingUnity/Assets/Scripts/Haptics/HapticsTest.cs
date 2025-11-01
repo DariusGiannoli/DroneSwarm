@@ -71,10 +71,10 @@ public class HapticsTest : MonoBehaviour
 
     // public static readonly int[] ObstacleAddrs =
     // { 60, 61, 62, 63, 64, 65, 66, 67 };
-    public static readonly int[] ObstacleAddrs =
-    { 16, 17, 18, 19, 20, 21, 22, 23 };
     // public static readonly int[] ObstacleAddrs =
-    // { 0, 1, 2, 3, 4, 5, 6, 7 };
+    // { 16, 17, 18, 19, 20, 21, 22, 23 };
+    public static readonly int[] ObstacleAddrs =
+    { 0, 1, 2, 3, 4, 5, 6, 7 };
 
     // public static int[] GetObstacleDutySnapshot()   // 8 长度
     // {
@@ -442,7 +442,7 @@ public class HapticsTest : MonoBehaviour
 
         // hysteresis on size: must stay “small change” for a while
         if (sizeDiff01 < SIZE_EPS01) _sizeStableTimer += dt;
-        else                         _sizeStableTimer  = 0f;
+        else _sizeStableTimer = 0f;
 
         bool muteTargetRow = (_sizeStableTimer >= SIZE_STABLE_FOR);
 
@@ -470,19 +470,19 @@ public class HapticsTest : MonoBehaviour
         // Array.Clear(duty, 0, duty.Length);   // duty[20]; declared elsewhere
         // Array.Clear(dutyByTile, 0, dutyByTile.Length);   // dutyByTile[20]; declared elsewhere
 
-            /*-------------------------------------------------------------*
-        * 1) ensure the embodied drone is in the list we iterate
-        *    (FindObjectsOfType may or may not include it, so we add it
-        *    explicitly if needed)
-        *-------------------------------------------------------------*/
+        /*-------------------------------------------------------------*
+    * 1) ensure the embodied drone is in the list we iterate
+    *    (FindObjectsOfType may or may not include it, so we add it
+    *    explicitly if needed)
+    *-------------------------------------------------------------*/
         if (!drones.Contains(embodiedDrone.transform))
             drones.Add(embodiedDrone.transform);
 
         var connectedDrones = drones.Where(d => d.GetComponent<DroneController>()?.droneFake != null && swarmModel.network.IsInMainNetwork(d.GetComponent<DroneController>().droneFake)).ToList();
-        
+
         // 1) 清空本帧目标强度
         System.Array.Clear(targetDuty, 0, targetDuty.Length);
-        System.Array.Clear(dutyByTile, 0, dutyByTile.Length); 
+        System.Array.Clear(dutyByTile, 0, dutyByTile.Length);
 
         // 2) 每架无人机 -> 对周围4格做双线性分配
         foreach (Transform d in connectedDrones)
@@ -525,7 +525,7 @@ public class HapticsTest : MonoBehaviour
             Add(r1, c0, w01);
             Add(r1, c1, w11);
         }
-        
+
 
         // float dt = Time.deltaTime;
         float alpha = 1f - Mathf.Exp(-dt / TAU_SMOOTH);
@@ -1409,6 +1409,7 @@ public class PIDActuator : Actuators // creae Ki
         refresherFunction(this);
         sendValue();
     }
+
 }
 
 public class Actuators

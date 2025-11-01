@@ -42,7 +42,7 @@ public class swarmModel : MonoBehaviour
     public float maxSpeed = 5f;
     public float maxForce = 10f;
 
-    public static float desiredSeparation = 3f;
+    public static float desiredSeparation = 5f;
     public static float extraDistanceNeighboor = 2f;
     public static float neighborRadius
     {
@@ -172,6 +172,39 @@ public class swarmModel : MonoBehaviour
 
     #endregion
 
+
+    [Header("Flocking Runtime Tuning")]
+    [Range(0f, 20f)]
+    public float extraDistanceNeighboorRuntime = 5f;
+
+    /// <summary>
+    /// 运行时设置接口：设置后立即刷新邻域半径与网络
+    /// 用法：FindObjectOfType<swarmModel>().ExtraDistanceNeighboor = 8f;
+    /// </summary>
+    public float ExtraDistanceNeighboor
+    {
+        get => extraDistanceNeighboor; // 仍使用你现有的 static 值作为权威源
+        set
+        {
+            float v = Mathf.Max(0f, value);
+            if (Mathf.Approximately(v, extraDistanceNeighboor)) return;
+
+            // 1) 写回 static（影响 neighborRadius 计算）
+            extraDistanceNeighboor = v;
+
+            // 2) 同步到 Inspector 滑块（保持面板一致）
+            extraDistanceNeighboorRuntime = v;
+
+            // 3) 立即下发到 DroneFake.neighborRadius，并刷新邻接网络
+            //    refreshParameters() 内部会把 DroneFake.neighborRadius = neighborRadius（你已有的逻辑）
+            refreshParameters();
+            if (network != null)
+            {
+                network.refreshNetwork();
+            }
+        }
+    }
+
     #region Internal score-thread scaffolding
 
     private class NetworkScores
@@ -220,6 +253,9 @@ public class swarmModel : MonoBehaviour
         isThreadRunning = false;
         // scorePlottingThread = new Thread(PlotNetworkScores);
         // scorePlottingThread.Start();
+
+        extraDistanceNeighboorRuntime = extraDistanceNeighboor;
+
     }
 
     void FixedUpdate()
@@ -241,6 +277,12 @@ public class swarmModel : MonoBehaviour
         {
             currentScores.dronesSnapshot = new List<DroneFake>(drones);
             currentScores.alignmentVector = MigrationPointController.alignementVectorNonZero;
+        }
+
+        // 当你在 Inspector 拖动 extraDistanceNeighboorRuntime 时，自动应用到 static，并立即刷新网络
+        if (!Mathf.Approximately(extraDistanceNeighboorRuntime, extraDistanceNeighboor))
+        {
+            ExtraDistanceNeighboor = extraDistanceNeighboorRuntime;
         }
 
         // ids check
@@ -350,7 +392,7 @@ public class swarmModel : MonoBehaviour
 
     void spawn()
     {
-        desiredSeparation = 3f;
+        desiredSeparation = 5f;
 
         if (!needToSpawn)
         {
