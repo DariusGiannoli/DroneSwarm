@@ -291,7 +291,7 @@ public class HapticsTest : MonoBehaviour
     float[] rawByAddr    = new float[256]; // 本帧密度（临时）
 
     // —— 可调参数 ——
-    const float GAIN_PER_DRONE = 10f;   // 一架无人机贡献的总强度（等价于你原来的 +2）
+    const float GAIN_PER_DRONE = 12f;   // 一架无人机贡献的总强度（等价于你原来的 +2）
     const float TAU_SMOOTH     = 0.20f;// 时间平滑常数(秒)，越大越稳
 
     // —— 状态缓存 ——
@@ -517,7 +517,7 @@ public class HapticsTest : MonoBehaviour
             void Add(int rr, int cc, float w)
             {
                 int addr = matrix[rr, cc];
-                targetDuty[addr] += GAIN_PER_DRONE * (1-halfW01) * w;
+                targetDuty[addr] += GAIN_PER_DRONE * (1 - halfW01) * w;
             }
 
             Add(r0, c0, w00);
