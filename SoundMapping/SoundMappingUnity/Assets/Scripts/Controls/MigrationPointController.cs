@@ -60,30 +60,97 @@ public class MigrationPointController : MonoBehaviour
     public bool allowManualSelection = false;    // disables selection by buttons 4/5 when false
     public bool allowManualEmbodiment = false;   // disables button 0 embodiment when false
 
+    [Header("Frontmost Sensitivity")]
+    [Tooltip("Candidate must be at least this much farther forward than the current embodied drone (in meters).")]
+    public float frontLeadThreshold = 0.5f;
+
+    [Tooltip("Reject candidates farther than this lateral distance from the viewing axis (in meters).")]
+    public float maxCandidateLateral = 0.0f;
+
+    // GameObject FindFrontmostDroneInView(Transform reference,
+    //                                     float maxAngleDeg,
+    //                                     float minFwd,
+    //                                     HashSet<DroneFake> allowedGroup = null)   // <— NEW
+    // {
+    //     if (reference == null || swarmModel.swarmHolder == null) return null;
+
+    //     Vector3 refPos = reference.position;
+    //     Vector3 fwd    = reference.forward;
+
+    //     GameObject best = null;
+    //     float bestForward = -Mathf.Infinity;
+    //     float bestLateral = Mathf.Infinity;
+
+    //     foreach (Transform t in swarmModel.swarmHolder.transform)
+    //     {
+    //         GameObject go = t.gameObject;
+
+    //         // skip self
+    //         if (CameraMovement.embodiedDrone != null && go == CameraMovement.embodiedDrone)
+    //             continue;
+
+    //         // NEW: filter out drones not in the main group
+    //         if (allowedGroup != null)
+    //         {
+    //             var dc = go.GetComponent<DroneController>();
+    //             if (dc == null || dc.droneFake == null || !allowedGroup.Contains(dc.droneFake))
+    //                 continue;
+    //         }
+
+    //         Vector3 diff = t.position - refPos;
+    //         float forwardDist = Vector3.Dot(diff, fwd);
+    //         if (forwardDist < minFwd) continue;
+
+    //         float angle = Vector3.Angle(fwd, diff);
+    //         if (angle > maxAngleDeg) continue;
+
+    //         Vector3 lateral = diff - fwd * forwardDist;
+    //         float lateralMag = lateral.magnitude;
+
+    //         bool better =
+    //             forwardDist > bestForward ||
+    //             (Mathf.Approximately(forwardDist, bestForward) && lateralMag < bestLateral);
+
+    //         if (better)
+    //         {
+    //             best = go;
+    //             bestForward = forwardDist;
+    //             bestLateral = lateralMag;
+    //         }
+    //     }
+    //     return best;
+    // }
 
     GameObject FindFrontmostDroneInView(Transform reference,
                                         float maxAngleDeg,
                                         float minFwd,
-                                        HashSet<DroneFake> allowedGroup = null)   // <— NEW
+                                        HashSet<DroneFake> allowedGroup = null)
     {
         if (reference == null || swarmModel.swarmHolder == null) return null;
 
         Vector3 refPos = reference.position;
         Vector3 fwd    = reference.forward;
 
+        // Baseline = current embodied drone's forward distance (if any)
+        float baselineForward = float.NegativeInfinity;
+        if (CameraMovement.embodiedDrone != null)
+        {
+            Vector3 curDiff = CameraMovement.embodiedDrone.transform.position - refPos;
+            baselineForward = Vector3.Dot(curDiff, fwd);
+        }
+
         GameObject best = null;
-        float bestForward = -Mathf.Infinity;
-        float bestLateral = Mathf.Infinity;
+        float bestScore = float.NegativeInfinity;
 
         foreach (Transform t in swarmModel.swarmHolder.transform)
         {
             GameObject go = t.gameObject;
 
-            // skip self
+            // Skip the currently embodied drone
             if (CameraMovement.embodiedDrone != null && go == CameraMovement.embodiedDrone)
                 continue;
 
-            // NEW: filter out drones not in the main group
+            // Filter by main group if provided
             if (allowedGroup != null)
             {
                 var dc = go.GetComponent<DroneController>();
@@ -91,30 +158,38 @@ public class MigrationPointController : MonoBehaviour
                     continue;
             }
 
-            Vector3 diff = t.position - refPos;
-            float forwardDist = Vector3.Dot(diff, fwd);
+            // Geometry relative to reference (embodied or camera)
+            Vector3 diff        = t.position - refPos;
+            float   forwardDist = Vector3.Dot(diff, fwd);
             if (forwardDist < minFwd) continue;
 
             float angle = Vector3.Angle(fwd, diff);
             if (angle > maxAngleDeg) continue;
 
-            Vector3 lateral = diff - fwd * forwardDist;
-            float lateralMag = lateral.magnitude;
+            Vector3 lateral    = diff - fwd * forwardDist;
+            float   lateralMag = lateral.magnitude;
 
-            bool better =
-                forwardDist > bestForward ||
-                (Mathf.Approximately(forwardDist, bestForward) && lateralMag < bestLateral);
+            // --- Stability gates ---
+            // 1) Off-axis rejection (keep candidates close to the view axis)
+            if (maxCandidateLateral > 0f && lateralMag > maxCandidateLateral)
+                continue;
 
-            if (better)
+            // 2) Must lead the current embodied by a clear margin
+            if (!float.IsNegativeInfinity(baselineForward) &&
+                (forwardDist - baselineForward) < frontLeadThreshold)
+                continue;
+
+            // Score: prefer more forward; tie-break by smaller lateral
+            float score = forwardDist - 0.1f * lateralMag; // small penalty for off-axis
+            if (score > bestScore)
             {
-                best = go;
-                bestForward = forwardDist;
-                bestLateral = lateralMag;
+                bestScore = score;
+                best      = go;
             }
         }
+
         return best;
     }
-
 
     // void RefreshMainGroupIfNeeded()
     // {
