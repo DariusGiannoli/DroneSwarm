@@ -1,5 +1,13 @@
-// SwarmTrajectoryRecorder.cs  (with adjustable recording frequency)
-// ... (header comments unchanged)
+// SwarmTrajectoryRecorder.cs
+// Records swarm trajectories into JSON, labels "main group" per sample using your runtime network,
+// supports adjustable recording frequency, safely saves on scene changes / quit, and
+// stores a single "Run" timing window (start/stop) for downstream analysis.
+//
+// Call from other scripts:
+//   SwarmTrajectoryRecorder.MarkTrialStart("Run");  // level/timer starts
+//   SwarmTrajectoryRecorder.MarkTrialStop("Run");   // level/timer ends
+//
+// Attach this to a persistent GameObject (e.g., in Setup).
 
 using System;
 using System.Collections.Generic;
@@ -18,14 +26,17 @@ public class SwarmTrajectoryRecorder : MonoBehaviour
     [Header("Swarm root discovery")]
     public string swarmRootTag = "Swarm";
     public string swarmRootName = "Swarm";
+    [Tooltip("How often to re-check child count and rediscover drones (sec). 0 = never.")]
     public float rescanChildrenEverySec = 1f;
 
     [Header("Drone discovery")]
+    [Tooltip("Type name of a component on each drone (e.g., 'DroneController'). Empty = any Transform child.")]
     public string droneComponentTypeName = "DroneController";
 
     [Header("Sampling")]
     [Tooltip("Samples per second (<=0 = every Update).")]
     public float sampleHz = 30f;
+    [Tooltip("Wait to start sampling until at least one drone is found.")]
     public bool waitForDronesToStart = true;
 
     [Header("Recording frequency")]
@@ -35,39 +46,59 @@ public class SwarmTrajectoryRecorder : MonoBehaviour
     public int recordEveryNthSample = 1;
 
     [Header("Lifecycle")]
+    [Tooltip("Keep this recorder across scene loads.")]
     public bool dontDestroyOnLoad = true;
+    [Tooltip("If true, keep trying to discover drones after start.")]
     public bool lazyDiscover = true;
 
     [Header("Output location")]
+    [Tooltip("Subfolder under PID folder.")]
     public string outSubfolder = "Trajectories";
+    [Tooltip("Override participant/session id.")]
     public string pidOverride = "";
 
     [Header("Output naming")]
+    [Tooltip("Override scene label in filename (otherwise inferred).")]
     public string sceneLabelOverride = "";
+    [Tooltip("Name of the setup scene (only used to disambiguate labels).")]
     public string setupSceneName = "Scene Selector";
 
     [Header("Quality of life")]
+    [Tooltip("Autosave interval in seconds. 0 = off.")]
     public float autosaveEverySec = 0f;
+    [Tooltip("Enable F7 hotkey to save immediately.")]
     public bool enableHotkeySave = true;
 
     [Header("Main group selection")]
+    [Tooltip("Use runtime network (swarmModel.network) to choose main group.")]
     public bool useNetworkForMainGroup = true;
+    [Tooltip("If network is unavailable this frame, include everyone (true) or use proximity fallback (false).")]
     public bool includeAllUntilNetworkReady = true;
 
-    [Header("Proximity fallback")]
+    [Header("Proximity fallback (only if network unavailable and includeAllUntilNetworkReady=false)")]
+    [Tooltip("Meters: drones closer than this are linked into the same group.")]
     public float linkDistance = 3f;
+    [Tooltip("Smallest cluster that qualifies as the 'main group'.")]
     public int minMainGroupSize = 3;
+    [Tooltip("Use XZ-plane distance for grouping (recommended). If false, use full 3D distance.")]
     public bool useXZDistance = true;
+
+    [Header("Run labeling")]
+    [Tooltip("Label name to enforce single-run policy on.")]
+    public string runLabelName = "Run";
+    [Tooltip("If true, only one 'Run' window (start->stop) will be recorded per file.")]
+    public bool singleRunMode = true;
 
     // -------------------- Internals --------------------
     public Transform swarmRoot;
     private readonly Dictionary<int, DroneTraj> _trajById = new Dictionary<int, DroneTraj>();
     private readonly List<Transform> _droneTransforms = new List<Transform>();
+
     private float _accum, _discoverTimer, _swarmFindTimer, _childrenRescanTimer, _autosaveTimer;
     private int _lastChildCount = -1;
     private bool _samplingEnabled;
 
-    // NEW: recording schedulers
+    // Recording schedule
     private float _recordAccum = 0f;
     private int _sampleIndex = 0;
 
@@ -77,6 +108,16 @@ public class SwarmTrajectoryRecorder : MonoBehaviour
     private bool _finalized;
     private float _lastSaveRealtime;
     private const float SaveDebounceSec = 0.25f;
+
+    // Scene/file labeling
+    private string _sceneLabelForThisRun = null;
+    private bool _justClearedForNewScene = false;
+
+    // Coroutine to ensure swarm exists after scene load
+    private Coroutine _ensureSwarmCoro;
+
+    // --- Single-run state ---
+    private bool _runFinalized = false;     // a 'Run' window has been closed in this file
 
     // -------------------- Data types --------------------
     [Serializable]
@@ -96,15 +137,30 @@ public class SwarmTrajectoryRecorder : MonoBehaviour
     }
 
     [Serializable]
+    public class TrialWindow
+    {
+        public string label;        // e.g., "Run", "Network"
+        public float startGameTime; // Time.time when started
+        public float startRealtime; // Time.realtimeSinceStartup when started
+        public float endGameTime;   // Time.time when ended (0 if still open)
+        public float endRealtime;   // Time.realtimeSinceStartup when ended (0 if open)
+    }
+
+    [Serializable]
     public class TrajectoryLog
     {
-        public string scene;
+        public string scene;   // active scene at save time (for reference)
         public string pid;
-        public string haptics;
-        public string order;
-        public float sampleHz;
+        public string haptics; // "H" / "NH"
+        public string order;   // "O" / "NO"
+        public float sampleHz; // sampling cadence (record cadence implied by data)
         public List<DroneTraj> trajectories = new List<DroneTraj>();
+        public List<TrialWindow> trials = new List<TrialWindow>(); // timing windows
     }
+
+    // Trial buffers
+    private readonly List<TrialWindow> _trialsBuffer = new List<TrialWindow>();
+    private TrialWindow _openTrial = null;
 
     // -------------------- Unity lifecycle --------------------
     private void Awake()
@@ -113,16 +169,19 @@ public class SwarmTrajectoryRecorder : MonoBehaviour
         _instance = this;
 
         if (dontDestroyOnLoad) DontDestroyOnLoad(gameObject);
-        SceneManager.sceneLoaded += OnSceneLoaded;
+        SceneManager.sceneLoaded   += OnSceneLoaded;
+        SceneManager.sceneUnloaded += OnSceneUnloaded; // save AFTER the old scene truly unloads
 
         _accum = _autosaveTimer = 0f;
-        _recordAccum = 0f; _sampleIndex = 0;
+        _recordAccum = 0f;
+        _sampleIndex = 0;
     }
 
     private void OnDestroy()
     {
         if (_instance == this) _instance = null;
-        SceneManager.sceneLoaded -= OnSceneLoaded;
+        SceneManager.sceneLoaded   -= OnSceneLoaded;
+        SceneManager.sceneUnloaded -= OnSceneUnloaded;
     }
 
     private void OnEnable()
@@ -132,19 +191,34 @@ public class SwarmTrajectoryRecorder : MonoBehaviour
         _samplingEnabled = !waitForDronesToStart || _droneTransforms.Count > 0;
     }
 
+    private void OnApplicationQuit() => TrySave(SaveReason.Final);
+
+    private void OnDisable()
+    {
+        // Always flush whatever we have
+        TrySave(SaveReason.Final);
+    }
+
+    private void OnSceneUnloaded(Scene s)
+    {
+        // Flush data from the scene that just finished unloading
+        bool any = false;
+        foreach (var kv in _trajById) { if (kv.Value.frames.Count > 0) { any = true; break; } }
+        if (any)
+        {
+            Debug.Log($"[SwarmTrajectoryRecorder] Scene unloaded -> saving previous scene '{s.name}'");
+            TrySave(SaveReason.Final);
+        }
+
+        // Prepare for next scene
+        ClearBuffers();
+    }
+
     private void OnSceneLoaded(Scene s, LoadSceneMode m)
     {
-        _trajById.Clear();
-        _droneTransforms.Clear();
-        _lastChildCount = -1;
-
-        TryFindSwarmRootNow();
-        CollectDrones();
-        _samplingEnabled = !waitForDronesToStart || _droneTransforms.Count > 0;
-
-        // reset schedulers on scene change
-        _accum = _autosaveTimer = 0f;
-        _recordAccum = 0f; _sampleIndex = 0;
+        if (!_justClearedForNewScene) ClearBuffers();
+        _justClearedForNewScene = false;
+        BeginSceneRecording(s);
     }
 
     private void Update()
@@ -193,7 +267,6 @@ public class SwarmTrajectoryRecorder : MonoBehaviour
 
         if (sampleHz <= 0f)
         {
-            // sample every Update; recording throttle via ShouldRecordThisSample(dt)
             bool recordNow = ShouldRecordThisSample(Time.deltaTime);
             SampleOnce(recordNow);
         }
@@ -220,13 +293,185 @@ public class SwarmTrajectoryRecorder : MonoBehaviour
         }
     }
 
-    private void OnApplicationQuit() => TrySave(SaveReason.Final);
-
-    private void OnDisable()
+    // -------------------- Public trial API --------------------
+    public static void MarkTrialStart(string label = "Run")
     {
-        var scene = SceneManager.GetActiveScene().name;
-        if (scene == setupSceneName) return;
-        TrySave(SaveReason.Final);
+        if (_instance != null) _instance.MarkTrialStartInternal(label);
+    }
+
+    public static void MarkTrialStop(string label = "Run")
+    {
+        if (_instance != null) _instance.MarkTrialStopInternal(label);
+    }
+
+    // STRICT single-run policy: ignore duplicate starts, ignore stop when no run is open.
+    private void MarkTrialStartInternal(string label)
+    {
+        label = string.IsNullOrEmpty(label) ? runLabelName : label;
+
+        if (singleRunMode && _runFinalized)
+        {
+#if UNITY_EDITOR
+            Debug.Log($"[SwarmTrajectoryRecorder] Ignoring Start('{label}') because a run was already finalized.");
+#endif
+            return;
+        }
+        if (_openTrial != null)
+        {
+#if UNITY_EDITOR
+            Debug.Log($"[SwarmTrajectoryRecorder] Ignoring Start('{label}') because a run is already open.");
+#endif
+            return;
+        }
+
+        _openTrial = new TrialWindow
+        {
+            label = label,
+            startGameTime = Time.time,
+            startRealtime = Time.realtimeSinceStartup,
+            endGameTime = 0f,
+            endRealtime = 0f
+        };
+#if UNITY_EDITOR
+        Debug.Log($"[SwarmTrajectoryRecorder] Trial START '{_openTrial.label}' at t={_openTrial.startGameTime:F2}s");
+#endif
+    }
+
+    private void MarkTrialStopInternal(string label)
+    {
+        label = string.IsNullOrEmpty(label) ? runLabelName : label;
+
+        if (_openTrial == null)
+        {
+#if UNITY_EDITOR
+            Debug.Log($"[SwarmTrajectoryRecorder] Ignoring Stop('{label}') because no run is open.");
+#endif
+            return;
+        }
+
+        _openTrial.endGameTime = Time.time;
+        _openTrial.endRealtime = Time.realtimeSinceStartup;
+        _trialsBuffer.Add(_openTrial);
+#if UNITY_EDITOR
+        Debug.Log($"[SwarmTrajectoryRecorder] Trial STOP '{_openTrial.label}' at t={_openTrial.endGameTime:F2}s (dur {( _openTrial.endGameTime - _openTrial.startGameTime):F2}s)");
+#endif
+        if (singleRunMode && _openTrial.label == runLabelName) _runFinalized = true;
+        _openTrial = null;
+    }
+
+    // -------------------- Scene prep / buffers --------------------
+    private void BeginSceneRecording(Scene s)
+    {
+        // Stable label for THIS scene
+        string activeName = s.IsValid() ? s.name : SceneManager.GetActiveScene().name;
+        string label = !string.IsNullOrEmpty(sceneLabelOverride) ? sceneLabelOverride :
+                       (ResolveSelectedSceneLabel() ?? ((activeName == setupSceneName) ? "UnknownScene" : activeName));
+        _sceneLabelForThisRun = MakeFileSafe(label);
+
+        // stop any previous search and start a fresh one
+        if (_ensureSwarmCoro != null) StopCoroutine(_ensureSwarmCoro);
+        _ensureSwarmCoro = StartCoroutine(EnsureSwarmAvailable());
+
+        _accum = _autosaveTimer = 0f;
+        _recordAccum = 0f; _sampleIndex = 0;
+        _samplingEnabled = false; // will flip to true when drones found
+
+        // reset single-run flags for the new file
+        _runFinalized = false;
+        _trialsBuffer.Clear();
+        _openTrial = null;
+    }
+
+    private void ClearBuffers()
+    {
+        // We do NOT auto-close here; Save() on unload/quit/disable already captures any open run.
+        _openTrial = null;
+        _trialsBuffer.Clear();
+        _trajById.Clear();
+        _droneTransforms.Clear();
+        _lastChildCount = -1;
+        _justClearedForNewScene = true;
+        _finalized = false; // allow a final save for the new scene
+        _runFinalized = false; // new file can have its own single run
+    }
+
+    private System.Collections.IEnumerator EnsureSwarmAvailable()
+    {
+        float timeout = 10f; // try up to 10s; set 0 for infinite
+        float t0 = Time.unscaledTime;
+
+        while (true)
+        {
+            TryFindSwarmRootNow();
+
+            // If still not found, try to infer by scanning active scene roots for the drone component type
+            if (!swarmRoot)
+            {
+                var type = GetTypeByName(droneComponentTypeName);
+                if (type != null)
+                {
+                    var scene = SceneManager.GetActiveScene();
+                    var roots = scene.IsValid() ? scene.GetRootGameObjects() : null;
+                    if (roots != null)
+                    {
+                        foreach (var go in roots)
+                        {
+                            var tr = FindTransformHavingComponent(go.transform, type);
+                            if (tr != null)
+                            {
+                                swarmRoot = tr.root;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (swarmRoot)
+            {
+                CollectDrones();
+                if (_droneTransforms.Count > 0)
+                {
+                    _samplingEnabled = true;
+                    Debug.Log($"[SwarmTrajectoryRecorder] Found Swarm with {_droneTransforms.Count} drones; recording enabled.");
+                    yield break;
+                }
+            }
+
+            if (timeout > 0f && (Time.unscaledTime - t0) > timeout)
+            {
+                Debug.LogWarning("[SwarmTrajectoryRecorder] Swarm not found within timeout; will keep idle and retry.");
+                // light retry while idle
+                while (!_samplingEnabled)
+                {
+                    TryFindSwarmRootNow();
+                    if (swarmRoot)
+                    {
+                        CollectDrones();
+                        if (_droneTransforms.Count > 0)
+                        {
+                            _samplingEnabled = true;
+                            Debug.Log($"[SwarmTrajectoryRecorder] Late-found Swarm with {_droneTransforms.Count} drones; recording enabled.");
+                            yield break;
+                        }
+                    }
+                    yield return new WaitForSeconds(0.5f);
+                }
+            }
+
+            yield return null; // next frame
+        }
+    }
+
+    private Transform FindTransformHavingComponent(Transform root, Type compType)
+    {
+        if (root.GetComponent(compType) != null) return root;
+        for (int i = 0; i < root.childCount; i++)
+        {
+            var hit = FindTransformHavingComponent(root.GetChild(i), compType);
+            if (hit != null) return hit;
+        }
+        return null;
     }
 
     // -------------------- Recording schedule --------------------
@@ -240,7 +485,7 @@ public class SwarmTrajectoryRecorder : MonoBehaviour
             if (_recordAccum + 1e-6f >= recPeriod)
             {
                 _recordAccum -= recPeriod;
-                _sampleIndex++; // still increment sample index for consistency
+                _sampleIndex++; // advance index for consistency
                 return true;
             }
             _sampleIndex++;
@@ -345,7 +590,6 @@ public class SwarmTrajectoryRecorder : MonoBehaviour
 
         float t = Time.time;
 
-        // If not writing, we can early-exit to avoid extra work.
         if (!writeThisSample) return;
 
         var positions = new Vector3[n];
@@ -360,11 +604,9 @@ public class SwarmTrajectoryRecorder : MonoBehaviour
                 _trajById[ids[i]] = new DroneTraj { id = ids[i], name = tr.name };
         }
 
-        // Compute main group flags (for frames we actually write)
         var inMain = new bool[n];
         ComputeMainGroupFlags(positions, inMain);
 
-        // Record frames
         for (int i = 0; i < n; i++)
         {
             if (!_trajById.TryGetValue(ids[i], out var traj)) continue;
@@ -387,7 +629,7 @@ public class SwarmTrajectoryRecorder : MonoBehaviour
 
         if (useNetworkForMainGroup)
         {
-            var net = swarmModel.network;
+            var net = swarmModel.network; // your runtime network
             if (net != null && net.largestComponent != null && net.largestComponent.Count > 0)
             {
                 var mainSet = new HashSet<DroneFake>(net.largestComponent);
@@ -397,9 +639,11 @@ public class SwarmTrajectoryRecorder : MonoBehaviour
                     if (!tr) continue;
                     var dc = tr.GetComponent<DroneController>();
                     var df = (dc != null) ? dc.droneFake : null;
+
                     bool isInMain =
                         (df != null && mainSet.Contains(df)) ||
                         (df != null && net.IsInMainNetwork(df));
+
                     inMain[i] = isInMain;
                 }
 
@@ -430,7 +674,11 @@ public class SwarmTrajectoryRecorder : MonoBehaviour
         int[] size = new int[n];
         for (int i = 0; i < n; i++) { parent[i] = i; size[i] = 1; }
 
-        int Find(int a) { while (parent[a] != a) { parent[a] = parent[parent[a]]; a = parent[a]; } return a; }
+        int Find(int a)
+        {
+            while (parent[a] != a) { parent[a] = parent[parent[a]]; a = parent[a]; }
+            return a;
+        }
         void Union(int a, int b)
         {
             a = Find(a); b = Find(b);
@@ -473,8 +721,8 @@ public class SwarmTrajectoryRecorder : MonoBehaviour
     // -------------------- Saving --------------------
     private void TrySave(SaveReason reason)
     {
-        if (_finalized && reason != SaveReason.Auto) return;
-        if (Time.realtimeSinceStartup - _lastSaveRealtime < SaveDebounceSec) return;
+        if (_finalized && reason != SaveReason.Auto) return; // already wrote final file
+        if (Time.realtimeSinceStartup - _lastSaveRealtime < SaveDebounceSec) return; // debounce
         _lastSaveRealtime = Time.realtimeSinceStartup;
 
         Save();
@@ -489,16 +737,27 @@ public class SwarmTrajectoryRecorder : MonoBehaviour
     {
         bool any = false;
         foreach (var kv in _trajById) { if (kv.Value.frames.Count > 0) { any = true; break; } }
-        if (!any && _droneTransforms.Count > 0) SampleOnce(true);
+        if (!any && _droneTransforms.Count > 0) SampleOnce(true); // ensure at least one sample
+
+        // Auto-stop open run just before saving (so it is captured in this file)
+        if (_openTrial != null && _openTrial.endGameTime <= 0f)
+        {
+            _openTrial.endGameTime = Time.time;
+            _openTrial.endRealtime = Time.realtimeSinceStartup;
+            _trialsBuffer.Add(_openTrial);
+            if (singleRunMode && _openTrial.label == runLabelName) _runFinalized = true;
+            _openTrial = null;
+        }
 
         var log = new TrajectoryLog
         {
-            scene = SceneManager.GetActiveScene().name,
+            scene = SceneManager.GetActiveScene().name,  // for reference
             pid = ResolvePid(),
             haptics = ResolveHaptics(),
             order = ResolveOrder(),
             sampleHz = sampleHz <= 0 ? -1f : sampleHz,
-            trajectories = new List<DroneTraj>(_trajById.Values)
+            trajectories = new List<DroneTraj>(_trajById.Values),
+            trials = new List<TrialWindow>(_trialsBuffer)
         };
 
         string root;
@@ -509,10 +768,10 @@ public class SwarmTrajectoryRecorder : MonoBehaviour
 #endif
         Directory.CreateDirectory(root);
 
-        string activeScene = SceneManager.GetActiveScene().name;
-        string label = !string.IsNullOrEmpty(sceneLabelOverride) ? sceneLabelOverride :
-                       (ResolveSelectedSceneLabel() ?? ((activeScene == setupSceneName) ? "UnknownScene" : activeScene));
-        string safeScene = MakeFileSafe(label);
+        // Use cached label for this scene (important when saving after scene switch)
+        string safeScene = !string.IsNullOrEmpty(_sceneLabelForThisRun)
+            ? _sceneLabelForThisRun
+            : MakeFileSafe(SceneManager.GetActiveScene().name);
 
         string stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
         string fileName = $"{safeScene}_{log.haptics}_{log.order}_{stamp}_traj.json";
@@ -526,6 +785,7 @@ public class SwarmTrajectoryRecorder : MonoBehaviour
 #endif
     }
 
+    // -------------------- Helpers --------------------
     private static string MakeFileSafe(string s)
     {
         if (string.IsNullOrEmpty(s)) return "Scene";
@@ -578,6 +838,7 @@ public class SwarmTrajectoryRecorder : MonoBehaviour
     {
         var t = GetTypeByName("SceneSelectorScript");
         if (t == null) return null;
+
         string[] fieldNames = { "selectedSceneName", "sceneToLoad", "targetScene", "detailScene", "SelectedLevel", "SelectedScene" };
         foreach (var fn in fieldNames)
         {
@@ -600,4 +861,13 @@ public class SwarmTrajectoryRecorder : MonoBehaviour
         }
         return null;
     }
+
+#if UNITY_EDITOR
+    // Optional tiny HUD for debugging
+    private void OnGUI()
+    {
+        GUI.Label(new Rect(8, 8, 1000, 20),
+            $"Recorder: sampling={_samplingEnabled} drones={_droneTransforms.Count} trajs={_trajById.Count} sceneLabel={_sceneLabelForThisRun} trials={_trialsBuffer.Count}{(_openTrial!=null?"(open)":"")} runFinalized={_runFinalized}");
+    }
+#endif
 }
