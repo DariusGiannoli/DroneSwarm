@@ -331,6 +331,14 @@ public class HapticsTest : MonoBehaviour
     static Dictionary<int, float> _assignedMagnitude = new Dictionary<int, float>(); // adresse -> magnitude
     static Dictionary<int, int>   _assignedDuty      = new Dictionary<int, int>();   // adresse -> duty (viz)
 
+    // === Size rendering log ===
+    private List<float> logTime = new();
+    private List<float> logHalfW01 = new();
+    private List<int[]> logSizeDuties = new();
+    private float logStartTime;
+    private string logFilePath;
+    private bool enableLogging = true;  // can toggle if needed
+
     private static void GetDynamicExtents(IReadOnlyList<Transform> drones,
                                     Transform swarmFrame,
                                     out float halfWidth,
@@ -632,6 +640,21 @@ public class HapticsTest : MonoBehaviour
                 _prevDuty[addr],                 // duty 0-14
                 _prevFreq[addr]);                // freq (fixed = 1 here)
         }
+        
+        // --- Logging size rendering values ---
+        if (enableLogging)
+        {
+            float currentTime = Time.time - logStartTime;
+            int[] rowDuties = new int[COLS];
+            for (int col = 0; col < COLS; col++)
+            {
+                int addr = matrix[TARGET_ROW, col];
+                rowDuties[col] = duty[addr];
+            }
+            logTime.Add(currentTime);
+            logHalfW01.Add(_lastHalfW01);  // normalized width
+            logSizeDuties.Add(rowDuties);
+        }
 
     }
 
@@ -759,100 +782,113 @@ public class HapticsTest : MonoBehaviour
     }
 
     void Start()
-{
-    // --- ADD THESE CONSTANTS for clarity ---
-    const int DRONE_SLAVE_ID = 0;    // Haptics for the main drone swarm
-    const int OBSTACLE_SLAVE_ID = 0; // Haptics for obstacles
+    {
+        // --- ADD THESE CONSTANTS for clarity ---
+        const int DRONE_SLAVE_ID = 0;    // Haptics for the main drone swarm
+        const int OBSTACLE_SLAVE_ID = 1; // Haptics for obstacles
 
-    VibraForge.Reset();
-    print("HapticsTest Start");
-    finalList = new List<Actuators>();
-    actuatorsRange = new List<Actuators>();
-    actuatorsVariables = new List<Actuators>();
-    actuatorNetwork = new List<Actuators>();
-    actuatorsMovingPlane = new List<Actuators>();
-    crashActuators = new List<Actuators>();
-    lastDefined = new List<Actuators>();
-    // animatedActuators = new Dictionary<AnimatedActuator, IEnumerator>();
+        VibraForge.Reset();
+        print("HapticsTest Start");
+        finalList = new List<Actuators>();
+        actuatorsRange = new List<Actuators>();
+        actuatorsVariables = new List<Actuators>();
+        actuatorNetwork = new List<Actuators>();
+        actuatorsMovingPlane = new List<Actuators>();
+        crashActuators = new List<Actuators>();
+        lastDefined = new List<Actuators>();
+        // animatedActuators = new Dictionary<AnimatedActuator, IEnumerator>();
 
-    _swarmFrame = new GameObject("SwarmFrame").transform;
-    _swarmFrame.gameObject.hideFlags = HideFlags.HideInHierarchy;   // keep Hierarchy clean
+        _swarmFrame = new GameObject("SwarmFrame").transform;
+        _swarmFrame.gameObject.hideFlags = HideFlags.HideInHierarchy;   // keep Hierarchy clean
 
-    // ... (mapping definitions remain the same) ...
-    
-    // Dictionary<int, int> angleMappingDict = new Dictionary<int, int> {
-    //     {64, 160},{65, 115},{66, 65},{67, 20}, {120, 200}, {121, 245},{122, 295},{123, 340},
+        // ... (mapping definitions remain the same) ...
+
+        // Dictionary<int, int> angleMappingDict = new Dictionary<int, int> {
+        //     {64, 160},{65, 115},{66, 65},{67, 20}, {120, 200}, {121, 245},{122, 295},{123, 340},
+        //     {90, 160},{91, 115},{92, 65},{93, 20}, {210, 200}, {211, 245},{212, 295},{213, 340},
+        //      {60, 340},{61, 295},{62, 245},{63, 200}, {150, 200}, {151, 245},{152, 295},{153, 340},
+        // };
+
+    //     Dictionary<int, int> angleMappingDict = new Dictionary<int, int> {
+    //     {20, 160},{21, 115},{22, 65},{23, 20}, {120, 200}, {121, 245},{122, 295},{123, 340},
     //     {90, 160},{91, 115},{92, 65},{93, 20}, {210, 200}, {211, 245},{212, 295},{213, 340},
-    //      {60, 340},{61, 295},{62, 245},{63, 200}, {150, 200}, {151, 245},{152, 295},{153, 340},
+    //      {16, 340},{17, 295},{18, 245},{19, 200}, {150, 200}, {151, 245},{152, 295},{153, 340},
     // };
 
-    Dictionary<int, int> angleMappingDict = new Dictionary<int, int> {
-        {20, 160},{21, 115},{22, 65},{23, 20}, {120, 200}, {121, 245},{122, 295},{123, 340},
-        {90, 160},{91, 115},{92, 65},{93, 20}, {210, 200}, {211, 245},{212, 295},{213, 340},
-         {16, 340},{17, 295},{18, 245},{19, 200}, {150, 200}, {151, 245},{152, 295},{153, 340},
-    };
+        Dictionary<int, int> angleMappingDict = new Dictionary<int, int> {
+                {4, 160},{5, 115},{6, 65},{7, 20},
+                {0, 340},{1, 295},{2, 245},{3, 200}
+            };
 
-    // Dictionary<int, int> angleMappingDict = new Dictionary<int, int> {
-    //         {4, 160},{5, 115},{6, 65},{7, 20},
-    //         {0, 340},{1, 295},{2, 245},{3, 200}
-    //     };
+        int[] angleMapping = Haptics_Obstacle ? new int[] { 0, 1, 2, 3, 4, 5, 6, 7 } : new int[] { };
+        // int[] angleMapping = Haptics_Obstacle ? new int[] { 60, 61, 62, 63, 64, 65, 66, 67 } : new int[] { };
+        // int[] angleMapping = Haptics_Obstacle ? new int[] { 16, 17, 18, 19, 20, 21, 22, 23 } : new int[] { };
+        int[] crashMapping = Haptics_Crash ? new int[] { 4, 5, 124, 125 } : new int[] { };
 
-    // int[] angleMapping = Haptics_Obstacle ? new int[] { 0, 1, 2, 3, 4, 5, 6, 7 } : new int[] { };
-    // int[] angleMapping = Haptics_Obstacle ? new int[] { 60, 61, 62, 63, 64, 65, 66, 67 } : new int[] { };
-    int[] angleMapping = Haptics_Obstacle ? new int[] { 16, 17, 18, 19, 20, 21, 22, 23 } : new int[] { };
-    int[] crashMapping = Haptics_Crash ? new int[] { 4, 5, 124, 125 } : new int[] { };
+        // --- OBSTACLE ACTUATOR CREATION ---
+        for (int i = 0; i < angleMapping.Length; i++)
+        {
+            int adresse = angleMapping[i];
+            int angle = angleMappingDict.ContainsKey(adresse) ? angleMappingDict[adresse] : 0;
+            var pidActuator = new PIDActuator(adresse: adresse, angle: angle,
+                                                    kp: 0f, kd: 160, referencevalue: 0,
+                                                    refresh: CloseToWallrefresherFunction);
 
-    // --- OBSTACLE ACTUATOR CREATION ---
-    for (int i = 0; i < angleMapping.Length; i++)
-    {
-        int adresse = angleMapping[i];
-        int angle = angleMappingDict.ContainsKey(adresse) ? angleMappingDict[adresse] : 0;
-        var pidActuator = new PIDActuator(adresse: adresse, angle: angle,
-                                                kp: 0f, kd: 160, referencevalue: 0,
-                                                refresh: CloseToWallrefresherFunction);
+            // --- ASSIGN THE SLAVE ID ---
+            pidActuator.SlaveId = OBSTACLE_SLAVE_ID; // This command will now go to Slave #1
 
-        // --- ASSIGN THE SLAVE ID ---
-        pidActuator.SlaveId = OBSTACLE_SLAVE_ID; // This command will now go to Slave #1
+            actuatorsRange.Add(pidActuator);
+        }
 
-        actuatorsRange.Add(pidActuator);
-    }
+        // --- CRASH ACTUATOR CREATION ---
+        for (int i = 0; i < crashMapping.Length; i++)
+        {
+            int adresse = crashMapping[i];
+            var crashActuator = new Actuators(adresse, 0);
 
-    // --- CRASH ACTUATOR CREATION ---
-    for (int i = 0; i < crashMapping.Length; i++)
-    {
-        int adresse = crashMapping[i];
-        var crashActuator = new Actuators(adresse, 0);
+            // --- ASSIGN THE SLAVE ID ---
+            crashActuator.SlaveId = DRONE_SLAVE_ID; // Crash commands will go to Slave #0
 
-        // --- ASSIGN THE SLAVE ID ---
-        crashActuator.SlaveId = DRONE_SLAVE_ID; // Crash commands will go to Slave #0
+            crashActuators.Add(crashActuator);
+        }
 
-        crashActuators.Add(crashActuator);
-    }
+        // ... (rest of the Start method is the same) ...
 
-    // ... (rest of the Start method is the same) ...
+        finalList.AddRange(actuatorsRange);
+        finalList.AddRange(crashActuators);
+        finalList.AddRange(actuatorNetwork);
+        finalList.AddRange(actuatorsVariables);
+        finalList.AddRange(actuatorsMovingPlane);
+
+        if (hapticsCoroutine != null)
+        {
+            StopCoroutine(hapticsCoroutine);
+        }
+
+        hapticsCoroutine = StartCoroutine(HapticsCoroutine());
+
+        currentGamepad = Gamepad.current;
+        if (currentGamepad == null)
+        {
+            Debug.LogWarning("No gamepad connected.");
+        }
+        else
+        {
+            currentGamepad.SetMotorSpeeds(0.0f, 0.0f);
+        }
     
-    finalList.AddRange(actuatorsRange);
-    finalList.AddRange(crashActuators);
-    finalList.AddRange(actuatorNetwork);
-    finalList.AddRange(actuatorsVariables);
-    finalList.AddRange(actuatorsMovingPlane);
+        // --- Logging setup ---
+        if (enableLogging)
+        {
+            logStartTime = Time.time;
+            string logDir = Application.dataPath + "/Logs";
+            if (!System.IO.Directory.Exists(logDir))
+                System.IO.Directory.CreateDirectory(logDir);
 
-    if (hapticsCoroutine != null)
-    {
-        StopCoroutine(hapticsCoroutine);
-    }
+            logFilePath = $"{logDir}/SizeRenderLog_{DateTime.Now:yyyyMMdd_HHmmss}.csv";
+            System.IO.File.WriteAllText(logFilePath, "time,halfW01,d0,d1,d2,d3\n");
+        }
 
-    hapticsCoroutine = StartCoroutine(HapticsCoroutine());
-
-    currentGamepad = Gamepad.current;
-    if (currentGamepad == null)
-    {
-        Debug.LogWarning("No gamepad connected.");
-    }
-    else
-    {
-        currentGamepad.SetMotorSpeeds(0.0f, 0.0f);
-    }
 }
 
     // Disable is called when the object is disabled
@@ -1253,7 +1289,25 @@ public class HapticsTest : MonoBehaviour
 
     }
 
+    private void OnApplicationQuit()
+    {
+        if (enableLogging) SaveHapticsLog();
+    }
 
+    private void SaveHapticsLog()
+    {
+        using (System.IO.StreamWriter sw = new System.IO.StreamWriter(logFilePath, true))
+        {
+            for (int i = 0; i < logTime.Count; i++)
+            {
+                int[] d = logSizeDuties[i];
+                string line = $"{logTime[i]:F3},{logHalfW01[i]:F4},{d[0]},{d[1]},{d[2]},{d[3]}";
+                sw.WriteLine(line);
+            }
+        }
+
+        Debug.Log($"[HapticsTest] Saved size rendering log ({logTime.Count} samples) → {logFilePath}");
+    }
     #endregion
 }
 
