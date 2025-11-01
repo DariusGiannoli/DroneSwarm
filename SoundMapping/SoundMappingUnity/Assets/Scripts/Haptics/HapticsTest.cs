@@ -549,6 +549,8 @@ public class HapticsTest : MonoBehaviour
         // const float DISC_OFF = 0.15f;  // 低于此阈值才关闭
         float score01 = Mathf.Clamp01(swarmModel.swarmConnectionScore);
         Debug.Log($"Connection score: {score01:F3}");
+        Debug.Log($"                   Average distance: {swarmModel.avgDist* DroneFake.desiredSeparation:F3} m");
+        Debug.Log($"                              Average distance / spreadness: {swarmModel.avgDist:F3} m");
 
         // 用你已有的平滑（可选）
         float discA = 1f - Mathf.Exp(-dt / disconnectTau);
@@ -556,9 +558,8 @@ public class HapticsTest : MonoBehaviour
 
         // 带迟滞的开关
         // static bool disconnActive; // 放到类字段更好（避免每帧重新置 false）
-        if (!disconnActive && _discScoreSmooth >= DISC_ON && swarmModel.avgDist < 5f)  disconnActive = true;
-        if (disconnActive && ( swarmModel.avgDist >= 5f || _discScoreSmooth <= DISC_OFF )) disconnActive = false;
-        
+        if (!disconnActive && _discScoreSmooth >= DISC_ON && swarmModel.avgDist < 2.5f) disconnActive = true;
+        if (disconnActive && (swarmModel.avgDist >= 2.5f || _discScoreSmooth <= DISC_OFF)) disconnActive = false;
 
         // 2) if size changed obviously
         bool sizeActive = !muteTargetRow;

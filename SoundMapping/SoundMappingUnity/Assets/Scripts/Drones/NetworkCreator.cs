@@ -463,22 +463,25 @@ public class NetworkCreator
         if (pairCount == 0) return 0f;
 
         // If any drone isn't in the main network, keep previous behavior (score=1)
-        foreach (var drone in drones)
-        {
-            if (!IsInMainNetwork(drone))
-            {
-                averageDistance = sumDistance / pairCount; // still report the average distance we computed
-                return 1f;
-            }
-        }
+        // foreach (var drone in drones)
+        // {
+        //     if (!IsInMainNetwork(drone))
+        //     {
+        //         averageDistance = sumDistance / pairCount; // still report the average distance we computed
+        //         return 1f;
+        //     }
+        // }
 
-        averageDistance = sumDistance / pairCount; // NEW: report average pairwise distance
+        // averageDistance = sumDistance / pairCount; // NEW: report average pairwise distance
+        averageDistance = sumDistance / pairCount / DroneFake.desiredSeparation; // NEW: report average pairwise distance
 
         float avgSquaredError = sumSquaredError / pairCount;
         float score = Mathf.Clamp01(
             (avgSquaredError / (DroneFake.desiredSeparation * DroneFake.desiredSeparation) - 0.3f)
             / (0.7f - 0.22f)
         );
+
+        // averageDistance = avgSquaredError / (DroneFake.desiredSeparation * DroneFake.desiredSeparation); // NEW: replace averageDistance temporarily with normalized metric
 
         return Mathf.Clamp01(score - 0.1f);
     }
