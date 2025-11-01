@@ -6605,7 +6605,7 @@ MonoBehaviour:
   needToSpawn: 1
   numDrones: 9
   spawnRadius: 3
-  startSperation: 2
+  startSperation: 5
   saveData: 1
   miniMap: 0
   showText: 0
