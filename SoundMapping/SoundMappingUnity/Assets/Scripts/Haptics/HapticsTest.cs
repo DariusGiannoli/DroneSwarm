@@ -518,7 +518,8 @@ public class HapticsTest : MonoBehaviour
             void Add(int rr, int cc, float w)
             {
                 int addr = matrix[rr, cc];
-                targetDuty[addr] += GAIN_PER_DRONE * (1 - halfW01) * w;
+                // targetDuty[addr] += GAIN_PER_DRONE * (1 - halfW01) * w;
+                targetDuty[addr] += GAIN_PER_DRONE * Mathf.Clamp(1 - halfW01, 0.35f, 0.75f) * w; 
             }
 
             Add(r0, c0, w00);
