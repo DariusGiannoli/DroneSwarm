@@ -322,11 +322,18 @@ public class HapticsTest : MonoBehaviour
     // {119,41,40,119}
     // };
 
+    // private static readonly int[,] matrix = {
+    // {3,2,1,0},
+    // { 4, 5, 6, 7},
+    // {11, 10, 9, 8},
+    // {12, 13, 14, 15}
+    // };
+
     private static readonly int[,] matrix = {
     {3,2,1,0},
     { 4, 5, 6, 7},
-    {11, 10, 9, 8},
-    {12, 13, 14, 15}
+    {33, 32, 31, 30},
+    {34, 35, 36, 37}
     };
 
     private static readonly int[] duty = new int[120];   // one per vibrator (0-14)
@@ -707,7 +714,7 @@ public class HapticsTest : MonoBehaviour
         // actually send
         foreach (int addr in dirty)
         {
-            VibraForge.SendCommand(0, addr,
+            VibraForge.SendCommand(addr,
                 _prevDuty[addr] == 0 ? 0 : 1,    // enable flag
                 _prevDuty[addr],                 // duty 0-14
                 _prevFreq[addr]);                // freq (fixed = 1 here)
@@ -875,11 +882,11 @@ public class HapticsTest : MonoBehaviour
 
         // ... (mapping definitions remain the same) ...
 
-        // Dictionary<int, int> angleMappingDict = new Dictionary<int, int> {
-        //     {64, 160},{65, 115},{66, 65},{67, 20}, {120, 200}, {121, 245},{122, 295},{123, 340},
-        //     {90, 160},{91, 115},{92, 65},{93, 20}, {210, 200}, {211, 245},{212, 295},{213, 340},
-        //      {60, 340},{61, 295},{62, 245},{63, 200}, {150, 200}, {151, 245},{152, 295},{153, 340},
-        // };
+        Dictionary<int, int> angleMappingDict = new Dictionary<int, int> {
+            {64, 160},{65, 115},{66, 65},{67, 20}, {120, 200}, {121, 245},{122, 295},{123, 340},
+            {90, 160},{91, 115},{92, 65},{93, 20}, {210, 200}, {211, 245},{212, 295},{213, 340},
+             {60, 340},{61, 295},{62, 245},{63, 200}, {150, 200}, {151, 245},{152, 295},{153, 340},
+        };
 
     //     Dictionary<int, int> angleMappingDict = new Dictionary<int, int> {
     //     {20, 160},{21, 115},{22, 65},{23, 20}, {120, 200}, {121, 245},{122, 295},{123, 340},
@@ -887,13 +894,13 @@ public class HapticsTest : MonoBehaviour
     //      {16, 340},{17, 295},{18, 245},{19, 200}, {150, 200}, {151, 245},{152, 295},{153, 340},
     // };
 
-        Dictionary<int, int> angleMappingDict = new Dictionary<int, int> {
-                {4, 160},{5, 115},{6, 65},{7, 20},
-                {0, 340},{1, 295},{2, 245},{3, 200}
-            };
+        // Dictionary<int, int> angleMappingDict = new Dictionary<int, int> {
+        //         {4, 160},{5, 115},{6, 65},{7, 20},
+        //         {0, 340},{1, 295},{2, 245},{3, 200}
+        //     };
 
-        int[] angleMapping = Haptics_Obstacle ? new int[] { 0, 1, 2, 3, 4, 5, 6, 7 } : new int[] { };
-        // int[] angleMapping = Haptics_Obstacle ? new int[] { 60, 61, 62, 63, 64, 65, 66, 67 } : new int[] { };
+        // int[] angleMapping = Haptics_Obstacle ? new int[] { 0, 1, 2, 3, 4, 5, 6, 7 } : new int[] { };
+        int[] angleMapping = Haptics_Obstacle ? new int[] { 60, 61, 62, 63, 64, 65, 66, 67 } : new int[] { };
         // int[] angleMapping = Haptics_Obstacle ? new int[] { 16, 17, 18, 19, 20, 21, 22, 23 } : new int[] { };
         int[] crashMapping = Haptics_Crash ? new int[] { 4, 5, 124, 125 } : new int[] { };
 
@@ -1298,7 +1305,7 @@ public class HapticsTest : MonoBehaviour
                 currentIntensity = currentIntensity - step < endIntensity ? endIntensity : currentIntensity - step;
             }
 
-            VibraForge.SendCommand(0, newAct.Adresse, (int)currentIntensity == 0 ? 0:1, (int)currentIntensity, (int)newAct.frequency);
+            VibraForge.SendCommand(newAct.Adresse, (int)currentIntensity == 0 ? 0:1, (int)currentIntensity, (int)newAct.frequency);
             yield return new WaitForSeconds(0.1f);
         }
 
@@ -1317,7 +1324,7 @@ public class HapticsTest : MonoBehaviour
             }else {
                 currentIntensity = currentIntensity - step < endIntensity ? endIntensity : currentIntensity - step;
             }
-            VibraForge.SendCommand(0, newAct.Adresse, (int)currentIntensity == 0 ? 0:1, (int)currentIntensity, (int)newAct.frequency);
+            VibraForge.SendCommand(newAct.Adresse, (int)currentIntensity == 0 ? 0:1, (int)currentIntensity, (int)newAct.frequency);
             yield return new WaitForSeconds(0.1f);
         }
 
@@ -1396,7 +1403,7 @@ public class HapticsTest : MonoBehaviour
 
 //     public void stopAnimation()
 //     {
-//         VibraForge.SendCommand(0, Adresse, 0, 0, 1);
+//         VibraForge.SendCommand(Adresse, 0, 0, 1);
 //     }
 //     public AnimatedActuator(int adresse, float angle, updateFunction refresh) : base(adresse, angle, refresh)
 //     {
@@ -1539,14 +1546,14 @@ public class Actuators
         if( lastSendFrequency != frequency || lastSendDuty != duty) {
             // --- MODIFIED LINE ---
             // Add "this.SlaveId" as the first parameter to the SendCommand call.
-            VibraForge.SendCommand(this.SlaveId, Adresse, (int)duty == 0 ? 0:1, (int)duty, (int)frequency);
+            VibraForge.SendCommand(Adresse, (int)duty == 0 ? 0:1, (int)duty, (int)frequency);
             
             lastSendDuty = duty;
             lastSendFrequency = frequency;
     //      Debug.Log("Send Command: " + Adresse + " Duty: " + duty + " Frequency: " + frequency);
         }
 
-        // VibraForge.SendCommand(this.SlaveId, Adresse, (int)duty == 0 ? 0:1, (int)duty, (int)frequency);
+        // VibraForge.SendCommand(Adresse, (int)duty == 0 ? 0:1, (int)duty, (int)frequency);
 
     }
 

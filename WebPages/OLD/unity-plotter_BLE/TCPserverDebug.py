@@ -156,10 +156,10 @@ async def ble_task():
             try:
                 print("Attempting to connect to Controller 1...")
                 ble_client = BleakClient(device1.address)
+                ble_client.set_disconnected_callback(
+                    lambda client: asyncio.create_task(handle_disconnect(client, CONTROL_UNIT_NAME))
+                )
                 await ble_client.connect()
-                # Start a monitor task to detect disconnection because older set_disconnected_callback API
-                # is not available in bleak 1.0+. The monitor will call handle_disconnect when needed.
-                asyncio.create_task(monitor_connection(ble_client, CONTROL_UNIT_NAME))
                 print(f'BLE connected to {device1.address} (Controller 1)')
                 val = await ble_client.read_gatt_char(CHARACTERISTIC_UUID)
                 print('Motor read (Controller 1) = ', val)
@@ -171,8 +171,10 @@ async def ble_task():
             try:
                 print("Attempting to connect to Controller 2...")
                 ble_client_2 = BleakClient(device2.address)
+                ble_client_2.set_disconnected_callback(
+                    lambda client: asyncio.create_task(handle_disconnect(client, CONTROL_UNIT_NAME_2))
+                )
                 await ble_client_2.connect()
-                asyncio.create_task(monitor_connection(ble_client_2, CONTROL_UNIT_NAME_2))
                 print(f'BLE connected to {device2.address} (Controller 2)')
                 val = await ble_client_2.read_gatt_char(CHARACTERISTIC_UUID)
                 print('Motor read (Controller 2) = ', val)
@@ -192,29 +194,6 @@ async def handle_disconnect(client, name):
         ble_client = None
     elif name == CONTROL_UNIT_NAME_2:
         ble_client_2 = None
-
-
-async def monitor_connection(client, name, poll_interval: float = 1.0):
-    """
-    Monitor a BleakClient's connection state and call handle_disconnect when it becomes disconnected.
-    This provides a fallback for bleak versions that don't expose set_disconnected_callback.
-    """
-    try:
-        while True:
-            # If the client object is gone or not connected, trigger the handler and stop monitoring.
-            if client is None:
-                return
-            try:
-                connected = client.is_connected
-            except Exception:
-                # If accessing is_connected raises, consider it disconnected.
-                connected = False
-            if not connected:
-                await handle_disconnect(client, name)
-                return
-            await asyncio.sleep(poll_interval)
-    except asyncio.CancelledError:
-        return
 
 
 async def handle_connection(websocket):
