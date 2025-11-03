@@ -370,7 +370,8 @@ public class HapticsTest : MonoBehaviour
     {
         // float t = (x + halfW) / (2f * halfW);      // → [0..1]
         // return Mathf.Clamp(Mathf.RoundToInt(t * actuator_W + center_W - actuator_W / 2f), 0, Mathf.RoundToInt(initial_actuator_W));
-        float t = x / 4.5f * 2f;      // → [0..1]
+        float t = x / 4.5f * 1.5f;      // → [0..1]
+        return Mathf.Clamp(Mathf.RoundToInt(-t + center_W), 0, Mathf.RoundToInt(initial_actuator_W));
         return Mathf.Clamp(Mathf.RoundToInt(t + center_W), 0, Mathf.RoundToInt(initial_actuator_W));
         // return Mathf.Clamp(Mathf.RoundToInt(t *  3f), 0, 3);
     }
@@ -379,8 +380,8 @@ public class HapticsTest : MonoBehaviour
     {
         // float t = (-y + halfH) / (2f * halfH);      // → [0..1]
         // return Mathf.Clamp(Mathf.RoundToInt(t * actuator_H + center_H - actuator_H / 2f), 0, Mathf.RoundToInt(initial_actuator_H));
-        float t = -y / 4.5f * 2f;      // → [0..1]
-        return Mathf.Clamp(Mathf.RoundToInt(t + center_H), 0, Mathf.RoundToInt(initial_actuator_H));
+        float t = -y / 4.5f * 1.5f;      // → [0..1]
+        return Mathf.Clamp(Mathf.RoundToInt(- t + center_H), 0, Mathf.RoundToInt(initial_actuator_H));
         // return Mathf.Clamp(Mathf.RoundToInt(t * 4f), 0, 4);
     }
 
