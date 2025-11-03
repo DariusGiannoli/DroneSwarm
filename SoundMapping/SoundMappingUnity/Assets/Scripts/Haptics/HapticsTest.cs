@@ -145,6 +145,63 @@ public class HapticsTest : MonoBehaviour
         return new Vector2((minX + maxX) * 0.5f, (minZ + maxZ) * 0.5f);
     }
 
+    // Call this instead of GetSwarmCentroid(...)
+    static bool BuildSwarmFrameAndLocalBounds(
+        IReadOnlyList<Transform> drones,
+        Transform embodiedDrone,
+        out Vector3 minLocalCentered,
+        out Vector3 maxLocalCentered,
+        out Vector3 centroidWorld)
+    {
+        minLocalCentered = maxLocalCentered = centroidWorld = Vector3.zero;
+
+        if (embodiedDrone == null || drones == null || drones.Count == 0)
+            return false;
+
+        // 1) pick the frame rotation from embodied
+        Quaternion swarmRot = Quaternion.LookRotation(embodiedDrone.forward, embodiedDrone.up);
+        Quaternion invRot   = Quaternion.Inverse(swarmRot);
+
+        // 2) filter to main connected group (same as your original)
+        var connected = new List<Transform>();
+        foreach (var t in drones)
+        {
+            var dc = t.GetComponent<DroneController>();
+            var df = dc ? dc.droneFake : null;
+            if (df != null && swarmModel.network.IsInMainNetwork(df))
+                connected.Add(t);
+        }
+        if (connected.Count == 0) return false;
+
+        // 3) choose a temporary origin (any consistent point is fine)
+        Vector3 refOrigin = connected[0].position;
+
+        // 4) compute oriented AABB in swarm frame (relative to refOrigin)
+        Vector3 p0Local = invRot * (connected[0].position - refOrigin);
+        Vector3 minL = p0Local, maxL = p0Local;
+
+        for (int i = 1; i < connected.Count; i++)
+        {
+            Vector3 lp = invRot * (connected[i].position - refOrigin);
+            if (lp.x < minL.x) minL.x = lp.x; else if (lp.x > maxL.x) maxL.x = lp.x;
+            if (lp.y < minL.y) minL.y = lp.y; else if (lp.y > maxL.y) maxL.y = lp.y;
+            if (lp.z < minL.z) minL.z = lp.z; else if (lp.z > maxL.z) maxL.z = lp.z;
+        }
+
+        // 5) center of the oriented AABB in local (relative to refOrigin)
+        Vector3 centerLocal = 0.5f * (minL + maxL);
+
+        // 6) final world centroid to place the swarm frame
+        centroidWorld = refOrigin + (swarmRot * centerLocal);
+
+        // 7) report min/max relative to the FINAL frame origin (centered)
+        minLocalCentered = minL - centerLocal;
+        maxLocalCentered = maxL - centerLocal;
+
+        return true;
+    }
+
+
     // -- Highlight-helper state ---------------------------------------------------
     private Transform _highlightedDrone = null;   // the drone we tinted last frame
     private static readonly Color _highlightColor = Color.blue;
@@ -193,7 +250,7 @@ public class HapticsTest : MonoBehaviour
         //             (sum, t) => sum + t.position) / drones.Count;
         Vector3 c = GetSwarmCentroid(drones);  // or use the centroid function above
 
-        // Gizmos.color = Color.cyan;
+        // Gizmos.color = Color.blue;
         // Gizmos.DrawSphere(c, 0.2f);        // 5 cm sphere
         // Gizmos.DrawLine(c, c + Vector3.up); // little “stem” so it’s easy to spot
     }
@@ -424,13 +481,26 @@ public class HapticsTest : MonoBehaviour
         }
 
         // --- 2) place & orient frame ----------------------------------------
-        Vector3 centroid = GetSwarmCentroid(drones); // or use the centroid function above
-        _swarmFrame.position = centroid;           // place at the centroid
-        _swarmFrame.rotation = Quaternion.LookRotation(
-                                    embodiedDrone.forward,
-                                    embodiedDrone.up);
+        // Vector3 centroid = GetSwarmCentroid(drones); // or use the centroid function above
+        // _swarmFrame.position = centroid;           // place at the centroid
+        // _swarmFrame.rotation = Quaternion.LookRotation(
+        //                             embodiedDrone.forward,
+                                    // embodiedDrone.up);
         // Debug.Log($"swarmFrame.rotation = {_swarmFrame.rotation.eulerAngles:F2} " +
         //           $"(centroid at {centroid:F2})");
+
+        Vector3 minL, maxL, centroidW;
+        if (BuildSwarmFrameAndLocalBounds(drones, embodiedDrone, out minL, out maxL, out centroidW))
+        {
+            // Place & orient the swarm frame correctly
+            _swarmFrame.SetPositionAndRotation(
+                centroidW,
+                Quaternion.LookRotation(embodiedDrone.forward, embodiedDrone.up)
+            );
+
+            // minL / maxL are now in the swarm coordinate (centered at the frame)
+            // e.g. minL.x is your local minX, etc.
+        }
 
         // ② measure current half-sizes
         GetDynamicExtents(drones, _swarmFrame, out halfW, out halfH);
