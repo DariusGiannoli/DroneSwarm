@@ -430,6 +430,15 @@ public class HapticsTest : MonoBehaviour
         halfHeight = Mathf.Max(maxAbsY, 0.01f);
     }
 
+    // returns a continuous column coordinate in [0, COLS-1]
+    float ColUFromX(float xLocal)
+    {
+        // your swarm width is normalized by 4.5f above, and you center it with +center_W
+        // let's reuse that logic but keep it continuous
+        float u = Mathf.Clamp(xLocal / 4.5f * 1.5f + center_W, 0f, COLS_MINUS1);
+        return u;
+    }
+
     int ColFromX(float x, float halfW, float actuator_W)    // halfW ≥ 0.01
     {
         // float t = (x + halfW) / (2f * halfW);      // → [0..1]
@@ -675,24 +684,63 @@ public class HapticsTest : MonoBehaviour
             }
             // Debug.Log("[MODE] Size bar");
         }
+        // else
+        // {
+        //     // ③ Embodied blink
+        //     const float blinkRate = 3f; // Hz, blink frequency
+        //     bool blinkOn = (Mathf.FloorToInt(Time.time * blinkRate) & 1) == 0;
+        //     int dutyVal = blinkOn ? 7 : 0;
+
+        //     Vector3 localE = _swarmFrame.InverseTransformPoint(embodiedDrone.position);
+        //     int colE = ColFromX(localE.x, halfW, actuator_W);
+        //     int rowE = 1; //RowFromY(localE.z, halfH, actuator_H); // 如果你想固定在哪一行，可直接 rowE = 1;
+
+        //     // 写入（注意 tile 步长 = COLS）
+        //     int addrE = matrix[rowE, colE];
+        //     duty[addrE] = dutyVal;
+        //     dutyByTile[rowE * COLS + colE] = dutyVal;
+
+        //     // Debug.Log("[MODE] Embodied blink");
+        // }
         else
         {
-            // ③ Embodied blink
-            const float blinkRate = 3f; // Hz, blink frequency
+            // ③ Embodied blink (but blended to 2 nearest actuators in row=1)
+            const float blinkRate = 3f; // Hz
             bool blinkOn = (Mathf.FloorToInt(Time.time * blinkRate) & 1) == 0;
-            int dutyVal = blinkOn ? 7 : 0;
+            int baseDuty = blinkOn ? 7 : 0;
 
             Vector3 localE = _swarmFrame.InverseTransformPoint(embodiedDrone.position);
-            int colE = ColFromX(localE.x, halfW, actuator_W);
-            int rowE = 1; //RowFromY(localE.z, halfH, actuator_H); // 如果你想固定在哪一行，可直接 rowE = 1;
 
-            // 写入（注意 tile 步长 = COLS）
-            int addrE = matrix[rowE, colE];
-            duty[addrE] = dutyVal;
-            dutyByTile[rowE * COLS + colE] = dutyVal;
+            // 1) continuous column
+            float u = ColUFromX(localE.x);   // e.g. 1.3 means 30% between col 1 and 2
 
-            // Debug.Log("[MODE] Embodied blink");
+            // 2) nearest two columns
+            int c0 = Mathf.FloorToInt(u);
+            int c1 = Mathf.Min(c0 + 1, COLS - 1);
+            float t = u - c0;          // 0..1, how far to the right
+
+            // 3) fixed row = 1
+            int row = 1;
+
+            // 4) weights (left gets 1-t, right gets t)
+            float w0 = 1f - t;
+            float w1 = t;
+
+            // 5) write to the two tiles
+            int addr0 = matrix[row, c0];
+            int addr1 = matrix[row, c1];
+
+            int duty0 = Mathf.RoundToInt(baseDuty * w0);
+            int duty1 = Mathf.RoundToInt(baseDuty * w1);
+
+            // since the buffer might already have other modes, take max
+            duty[addr0] = Mathf.Max(duty[addr0], duty0);
+            duty[addr1] = Mathf.Max(duty[addr1], duty1);
+
+            dutyByTile[row * COLS + c0] = Mathf.Max(dutyByTile[row * COLS + c0], duty0);
+            dutyByTile[row * COLS + c1] = Mathf.Max(dutyByTile[row * COLS + c1], duty1);
         }
+
 
         // ④ find which addresses changed since last frame
         const int BASE_FREQ = 1;                 // you keep freq fixed for now
