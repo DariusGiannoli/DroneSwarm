@@ -435,7 +435,7 @@ public class HapticsTest : MonoBehaviour
     {
         // your swarm width is normalized by 4.5f above, and you center it with +center_W
         // let's reuse that logic but keep it continuous
-        float u = Mathf.Clamp(xLocal / 4.5f * 1.5f + center_W, 0f, COLS_MINUS1);
+        float u = Mathf.Clamp(-xLocal / 4.5f * 1.5f + center_W, 0f, COLS_MINUS1);
         return u;
     }
 
