@@ -71,10 +71,10 @@ public class HapticsTest : MonoBehaviour
 
     // public static readonly int[] ObstacleAddrs =
     // { 60, 61, 62, 63, 64, 65, 66, 67 };
-    // public static readonly int[] ObstacleAddrs =
-    // { 16, 17, 18, 19, 20, 21, 22, 23 };
     public static readonly int[] ObstacleAddrs =
-    { 0, 1, 2, 3, 4, 5, 6, 7 };
+    { 16, 17, 18, 19, 20, 21, 22, 23 };
+    // public static readonly int[] ObstacleAddrs =
+    // { 0, 1, 2, 3, 4, 5, 6, 7 };
 
     // public static int[] GetObstacleDutySnapshot()   // 8 长度
     // {
@@ -322,18 +322,11 @@ public class HapticsTest : MonoBehaviour
     // {119,41,40,119}
     // };
 
-    // private static readonly int[,] matrix = {
-    // {3,2,1,0},
-    // { 4, 5, 6, 7},
-    // {11, 10, 9, 8},
-    // {12, 13, 14, 15}
-    // };
-
     private static readonly int[,] matrix = {
     {3,2,1,0},
     { 4, 5, 6, 7},
-    {33, 32, 31, 30},
-    {34, 35, 36, 37}
+    {11, 10, 9, 8},
+    {12, 13, 14, 15}
     };
 
     private static readonly int[] duty = new int[120];   // one per vibrator (0-14)
@@ -428,15 +421,6 @@ public class HapticsTest : MonoBehaviour
         // Avoid divide-by-zero when the swarm collapses to a point
         halfWidth = Mathf.Max(maxAbsX, 0.01f);   // at least 1 cm
         halfHeight = Mathf.Max(maxAbsY, 0.01f);
-    }
-
-    // returns a continuous column coordinate in [0, COLS-1]
-    float ColUFromX(float xLocal)
-    {
-        // your swarm width is normalized by 4.5f above, and you center it with +center_W
-        // let's reuse that logic but keep it continuous
-        float u = Mathf.Clamp(-xLocal / 4.5f * 1.5f + center_W, 0f, COLS_MINUS1);
-        return u;
     }
 
     int ColFromX(float x, float halfW, float actuator_W)    // halfW ≥ 0.01
@@ -684,63 +668,24 @@ public class HapticsTest : MonoBehaviour
             }
             // Debug.Log("[MODE] Size bar");
         }
-        // else
-        // {
-        //     // ③ Embodied blink
-        //     const float blinkRate = 3f; // Hz, blink frequency
-        //     bool blinkOn = (Mathf.FloorToInt(Time.time * blinkRate) & 1) == 0;
-        //     int dutyVal = blinkOn ? 7 : 0;
-
-        //     Vector3 localE = _swarmFrame.InverseTransformPoint(embodiedDrone.position);
-        //     int colE = ColFromX(localE.x, halfW, actuator_W);
-        //     int rowE = 1; //RowFromY(localE.z, halfH, actuator_H); // 如果你想固定在哪一行，可直接 rowE = 1;
-
-        //     // 写入（注意 tile 步长 = COLS）
-        //     int addrE = matrix[rowE, colE];
-        //     duty[addrE] = dutyVal;
-        //     dutyByTile[rowE * COLS + colE] = dutyVal;
-
-        //     // Debug.Log("[MODE] Embodied blink");
-        // }
         else
         {
-            // ③ Embodied blink (but blended to 2 nearest actuators in row=1)
-            const float blinkRate = 3f; // Hz
+            // ③ Embodied blink
+            const float blinkRate = 3f; // Hz, blink frequency
             bool blinkOn = (Mathf.FloorToInt(Time.time * blinkRate) & 1) == 0;
-            int baseDuty = blinkOn ? 7 : 0;
+            int dutyVal = blinkOn ? 7 : 0;
 
             Vector3 localE = _swarmFrame.InverseTransformPoint(embodiedDrone.position);
+            int colE = ColFromX(localE.x, halfW, actuator_W);
+            int rowE = 1; //RowFromY(localE.z, halfH, actuator_H); // 如果你想固定在哪一行，可直接 rowE = 1;
 
-            // 1) continuous column
-            float u = ColUFromX(localE.x);   // e.g. 1.3 means 30% between col 1 and 2
+            // 写入（注意 tile 步长 = COLS）
+            int addrE = matrix[rowE, colE];
+            duty[addrE] = dutyVal;
+            dutyByTile[rowE * COLS + colE] = dutyVal;
 
-            // 2) nearest two columns
-            int c0 = Mathf.FloorToInt(u);
-            int c1 = Mathf.Min(c0 + 1, COLS - 1);
-            float t = u - c0;          // 0..1, how far to the right
-
-            // 3) fixed row = 1
-            int row = 1;
-
-            // 4) weights (left gets 1-t, right gets t)
-            float w0 = 1f - t;
-            float w1 = t;
-
-            // 5) write to the two tiles
-            int addr0 = matrix[row, c0];
-            int addr1 = matrix[row, c1];
-
-            int duty0 = Mathf.RoundToInt(baseDuty * w0);
-            int duty1 = Mathf.RoundToInt(baseDuty * w1);
-
-            // since the buffer might already have other modes, take max
-            duty[addr0] = Mathf.Max(duty[addr0], duty0);
-            duty[addr1] = Mathf.Max(duty[addr1], duty1);
-
-            dutyByTile[row * COLS + c0] = Mathf.Max(dutyByTile[row * COLS + c0], duty0);
-            dutyByTile[row * COLS + c1] = Mathf.Max(dutyByTile[row * COLS + c1], duty1);
+            // Debug.Log("[MODE] Embodied blink");
         }
-
 
         // ④ find which addresses changed since last frame
         const int BASE_FREQ = 1;                 // you keep freq fixed for now
@@ -762,7 +707,7 @@ public class HapticsTest : MonoBehaviour
         // actually send
         foreach (int addr in dirty)
         {
-            VibraForge.SendCommand(addr,
+            VibraForge.SendCommand(0, addr,
                 _prevDuty[addr] == 0 ? 0 : 1,    // enable flag
                 _prevDuty[addr],                 // duty 0-14
                 _prevFreq[addr]);                // freq (fixed = 1 here)
@@ -930,26 +875,26 @@ public class HapticsTest : MonoBehaviour
 
         // ... (mapping definitions remain the same) ...
 
-        Dictionary<int, int> angleMappingDict = new Dictionary<int, int> {
-            {64, 160},{65, 115},{66, 65},{67, 20}, {120, 200}, {121, 245},{122, 295},{123, 340},
-            {90, 160},{91, 115},{92, 65},{93, 20}, {210, 200}, {211, 245},{212, 295},{213, 340},
-             {60, 340},{61, 295},{62, 245},{63, 200}, {150, 200}, {151, 245},{152, 295},{153, 340},
-        };
+        // Dictionary<int, int> angleMappingDict = new Dictionary<int, int> {
+        //     {64, 160},{65, 115},{66, 65},{67, 20}, {120, 200}, {121, 245},{122, 295},{123, 340},
+        //     {90, 160},{91, 115},{92, 65},{93, 20}, {210, 200}, {211, 245},{212, 295},{213, 340},
+        //      {60, 340},{61, 295},{62, 245},{63, 200}, {150, 200}, {151, 245},{152, 295},{153, 340},
+        // };
 
-    //     Dictionary<int, int> angleMappingDict = new Dictionary<int, int> {
-    //     {20, 160},{21, 115},{22, 65},{23, 20}, {120, 200}, {121, 245},{122, 295},{123, 340},
-    //     {90, 160},{91, 115},{92, 65},{93, 20}, {210, 200}, {211, 245},{212, 295},{213, 340},
-    //      {16, 340},{17, 295},{18, 245},{19, 200}, {150, 200}, {151, 245},{152, 295},{153, 340},
-    // };
+        Dictionary<int, int> angleMappingDict = new Dictionary<int, int> {
+        {20, 160},{21, 115},{22, 65},{23, 20}, {120, 200}, {121, 245},{122, 295},{123, 340},
+        {90, 160},{91, 115},{92, 65},{93, 20}, {210, 200}, {211, 245},{212, 295},{213, 340},
+         {16, 340},{17, 295},{18, 245},{19, 200}, {150, 200}, {151, 245},{152, 295},{153, 340},
+    };
 
         // Dictionary<int, int> angleMappingDict = new Dictionary<int, int> {
         //         {4, 160},{5, 115},{6, 65},{7, 20},
         //         {0, 340},{1, 295},{2, 245},{3, 200}
         //     };
 
-        // int[] angleMapping = Haptics_Obstacle ? new int[] { 0, 1, 2, 3, 4, 5, 6, 7 } : new int[] { };
-        int[] angleMapping = Haptics_Obstacle ? new int[] { 60, 61, 62, 63, 64, 65, 66, 67 } : new int[] { };
-        // int[] angleMapping = Haptics_Obstacle ? new int[] { 16, 17, 18, 19, 20, 21, 22, 23 } : new int[] { };
+        //int[] angleMapping = Haptics_Obstacle ? new int[] { 0, 1, 2, 3, 4, 5, 6, 7 } : new int[] { };
+        // int[] angleMapping = Haptics_Obstacle ? new int[] { 60, 61, 62, 63, 64, 65, 66, 67 } : new int[] { };
+         int[] angleMapping = Haptics_Obstacle ? new int[] { 16, 17, 18, 19, 20, 21, 22, 23 } : new int[] { };
         int[] crashMapping = Haptics_Crash ? new int[] { 4, 5, 124, 125 } : new int[] { };
 
         // --- OBSTACLE ACTUATOR CREATION ---
@@ -1353,7 +1298,7 @@ public class HapticsTest : MonoBehaviour
                 currentIntensity = currentIntensity - step < endIntensity ? endIntensity : currentIntensity - step;
             }
 
-            VibraForge.SendCommand(newAct.Adresse, (int)currentIntensity == 0 ? 0:1, (int)currentIntensity, (int)newAct.frequency);
+            VibraForge.SendCommand(0, newAct.Adresse, (int)currentIntensity == 0 ? 0:1, (int)currentIntensity, (int)newAct.frequency);
             yield return new WaitForSeconds(0.1f);
         }
 
@@ -1372,7 +1317,7 @@ public class HapticsTest : MonoBehaviour
             }else {
                 currentIntensity = currentIntensity - step < endIntensity ? endIntensity : currentIntensity - step;
             }
-            VibraForge.SendCommand(newAct.Adresse, (int)currentIntensity == 0 ? 0:1, (int)currentIntensity, (int)newAct.frequency);
+            VibraForge.SendCommand(0, newAct.Adresse, (int)currentIntensity == 0 ? 0:1, (int)currentIntensity, (int)newAct.frequency);
             yield return new WaitForSeconds(0.1f);
         }
 
@@ -1451,7 +1396,7 @@ public class HapticsTest : MonoBehaviour
 
 //     public void stopAnimation()
 //     {
-//         VibraForge.SendCommand(Adresse, 0, 0, 1);
+//         VibraForge.SendCommand(0, Adresse, 0, 0, 1);
 //     }
 //     public AnimatedActuator(int adresse, float angle, updateFunction refresh) : base(adresse, angle, refresh)
 //     {
@@ -1594,14 +1539,14 @@ public class Actuators
         if( lastSendFrequency != frequency || lastSendDuty != duty) {
             // --- MODIFIED LINE ---
             // Add "this.SlaveId" as the first parameter to the SendCommand call.
-            VibraForge.SendCommand(Adresse, (int)duty == 0 ? 0:1, (int)duty, (int)frequency);
+            VibraForge.SendCommand(this.SlaveId, Adresse, (int)duty == 0 ? 0:1, (int)duty, (int)frequency);
             
             lastSendDuty = duty;
             lastSendFrequency = frequency;
     //      Debug.Log("Send Command: " + Adresse + " Duty: " + duty + " Frequency: " + frequency);
         }
 
-        // VibraForge.SendCommand(Adresse, (int)duty == 0 ? 0:1, (int)duty, (int)frequency);
+        // VibraForge.SendCommand(this.SlaveId, Adresse, (int)duty == 0 ? 0:1, (int)duty, (int)frequency);
 
     }
 
