@@ -69,7 +69,7 @@ class SERIAL_API:
     def connect_serial_device(self, port_info) -> bool:
         try:
             port_name = port_info.split(' - ')[0]
-            self.serial_connection = serial.Serial(port=port_name, baudrate=115200, timeout=1, write_timeout=1)
+            self.serial_connection = serial.Serial(port=port_name, baudrate=500000, timeout=1, write_timeout=1)
             time.sleep(2)
             self.connected = self.serial_connection.is_open
             if self.connected: print(f'Successfully connected to {port_name}')
